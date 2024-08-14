@@ -61,6 +61,6 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 # --cores:  核心数（不提供使用全部核心）
 # --wallet: 预留（随便填）
 
-.\mine-client.exe --url "ws://127.0.0.1:8080" --cores 16 --wallet "" 
+.\mine-client.exe --url "ws://127.0.0.1:8080" --cores 16 --wallet "any" 
 
 ```

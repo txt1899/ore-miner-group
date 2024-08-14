@@ -8,22 +8,21 @@ name = "mine-client"
 path = "src/main.rs"
 
 [dependencies]
-bs58 = "0.5.1"
+bs58.workspace = true
+num_cpus.workspace = true
+core_affinity.workspace = true
+
 awc = "3.2"
-num_cpus = "1.16.0"
 actix-web = "4.0.0"
-tokio = { version = "1.35.1", features = ["macros", "time", "sync", "rt-multi-thread", "signal", "parking_lot", "rt"] }
-futures-util = { version = "0.3.30", features = ["sink"] }
 tokio-stream = "0.1.15"
-core_affinity = "0.8.1"
 
-tracing.workspace = true
 clap.workspace = true
-
 drillx.workspace = true
 ore-api.workspace = true
 ore-utils.workspace = true
-
 serde_json.workspace = true
+tokio = { workspace = true, features = ["macros", "time", "sync", "rt-multi-thread", "signal", "parking_lot", "rt"] }
+futures-util = { workspace = true, features = ["sink"] }
 
-common = { path = "../shared" }
+lib_shared = { path = "../shared" }
+tracing.workspace = true

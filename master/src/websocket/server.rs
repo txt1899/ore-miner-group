@@ -28,7 +28,7 @@ use actix::{
 use rand::{rngs::ThreadRng, Rng};
 use tracing::{error, info, warn};
 
-use common::stream;
+use lib_shared::stream;
 
 use crate::websocket::{
     mediator::MediatorActor,

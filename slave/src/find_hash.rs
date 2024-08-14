@@ -8,7 +8,7 @@ use std::{
 
 use drillx::{equix, Hash};
 
-use common::stream::{client, server};
+use lib_shared::stream::{client, server};
 
 pub fn find_hash(cores: usize, task: server::Task) -> client::MineResult {
     let core_ids = core_affinity::get_core_ids().unwrap();

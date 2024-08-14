@@ -5,7 +5,7 @@ use actix_web_actors::ws;
 use drillx::Hash;
 use tracing::{debug, error, warn};
 
-use common::stream::{ClientMessageType, FromClientData};
+use lib_shared::stream::{ClientMessageType, FromClientData};
 
 use crate::websocket::{messages, scheduler::Scheduler, server::ServerActor};
 

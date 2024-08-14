@@ -6,7 +6,7 @@ use clap::{command, Parser, Subcommand};
 use futures_util::{SinkExt as _, StreamExt as _};
 use tokio::{select, sync::mpsc};
 
-use common::{
+use lib_shared::{
     stream,
     stream::{client, server, FromServerData, ServerMessageType},
 };
@@ -42,7 +42,7 @@ struct Args {
 
 #[actix_web::main]
 async fn main() {
-    common::log::init_log();
+    lib_shared::log::init_log();
 
     let args = Args::parse();
     let host = args.url.expect("Server url can not be empty");

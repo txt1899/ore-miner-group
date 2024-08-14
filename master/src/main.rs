@@ -86,7 +86,7 @@ async fn get_count(count: web::Data<AtomicUsize>) -> impl Responder {
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    common::log::init_log();
+    lib_shared::log::init_log();
 
     let args = Args::parse();
 
