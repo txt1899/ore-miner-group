@@ -28,9 +28,8 @@ use clap::Parser;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use tokio::time::sleep;
-use tracing::log::*;
 use tracing_subscriber::EnvFilter;
-// use tracing::{info, debug};
+use tracing::{info, debug, error};
 use tracing_subscriber::fmt::{format, time::ChronoLocal};
 
 use crate::{

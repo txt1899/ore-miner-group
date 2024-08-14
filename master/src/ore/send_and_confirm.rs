@@ -21,7 +21,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::ore::{utils, Miner};
 
@@ -100,6 +100,7 @@ impl Miner {
         // Submit tx
         let mut attempts = 0;
         info!("开始提交");
+        let mut sigs = vec![];
         loop {
             // Sign tx with a new blockhash (after approximately ~45 sec)
             if attempts % 10 == 0 {
@@ -144,11 +145,12 @@ impl Miner {
                         info!("Sent: {}", sig);
                         return Ok(sig);
                     }
-
+                    sigs.push(sig);
+                    debug!("signature: {:?}", sig);
                     // Confirm transaction
                     'confirm: for _ in 0..CONFIRM_RETRIES {
                         tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
-                        match client.get_signature_statuses(&[sig]).await {
+                        match client.get_signature_statuses(&sigs[..]).await {
                             Ok(signature_statuses) => {
                                 for status in signature_statuses.value {
                                     if let Some(status) = status {
@@ -198,6 +200,7 @@ impl Miner {
                                         } else if let Some(confirmation) =
                                             status.confirmation_status
                                         {
+                                            debug!("confirmation: {:?}", confirmation);
                                             match confirmation {
                                                 TransactionConfirmationStatus::Processed => {}
                                                 TransactionConfirmationStatus::Confirmed
