@@ -5,7 +5,17 @@
 
 后期优化希望大家共同努力，一起完善。欢迎提交PR。
 
-### 正确的目录结构
+### 使用
+
+```cmd
+git clone https://github.com/txt1899/ore-miner-group.git
+
+cd ore-miner-group
+
+cargo build --release
+```
+
+### 目录结构
 ```cmd
 C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 │  config.json
