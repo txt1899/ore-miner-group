@@ -7,6 +7,8 @@ use std::{
 };
 
 use drillx::{equix, Hash};
+use tracing::debug;
+use tracing::field::debug;
 
 use lib_shared::stream::{client, server};
 
@@ -18,7 +20,7 @@ pub fn find_hash(cores: usize, task: server::Task) -> client::MineResult {
         .map(|i| {
             std::thread::spawn({
                 let mut memory = equix::SolverMemory::new();
-                let total_nonce = task.nonce_range.start + task.nonce_range.end;
+                let total_nonce = task.nonce_range.end - task.nonce_range.start;
                 let step = total_nonce.saturating_div(cores as u64);
                 let t = task.clone();
                 let c = counter.clone();
@@ -31,6 +33,8 @@ pub fn find_hash(cores: usize, task: server::Task) -> client::MineResult {
                     let _ = core_affinity::set_for_current(i);
                     let timer = Instant::now();
                     let mut nonce = step.saturating_mul(i.id as u64) + t.nonce_range.start;
+                    debug!("core: {} start nonce: {}", i.id, nonce);
+
                     let mut best_nonce = nonce;
                     let mut best_difficulty = 0;
                     let mut best_hash = Hash::default();

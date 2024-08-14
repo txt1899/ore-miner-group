@@ -164,7 +164,7 @@ impl Handler<messages::AssignTask> for ServerActor {
                     let workload = 1_000_000; //((session.miner.hashrate as f32 * 1.2) as u64;
                     match stream::create_client_message(0, stream::server::Task {
                         challenge: msg.challenge,
-                        nonce_range: { start_nonce..start_nonce + workload },
+                        nonce_range: { start_nonce..start_nonce + workload - 1 },
                         cutoff_time: msg.cutoff_time,
                         min_difficulty: msg.min_difficulty,
                     }) {
