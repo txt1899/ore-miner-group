@@ -15,7 +15,7 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 
 ### 服务端配置文件
 - `config.json`
-  - `fee_payer`： 手写费支付钱包，省略使用矿工钱包
+  - `fee_payer`： gas支付钱包，省略使用矿工钱包
   - `dynamic_fee_url`：支持Helius、Alchemy、Quiknode、Triton
 
 ```json
