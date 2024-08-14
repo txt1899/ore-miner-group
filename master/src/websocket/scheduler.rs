@@ -71,7 +71,6 @@ impl Actor for Scheduler {
                         let start_time = Instant::now();
                         let clone_this = this.clone();
                         let clone_addr = addr.clone();
-                        let buffer_time = miner.buffer_time.clone();
                         let find_hash = |proof: Proof, cutoff_time: u64, min_difficulty: u32| {
                             async move {
                                 // 更新挑战，清空上一次难度
@@ -90,7 +89,7 @@ impl Actor for Scheduler {
                                 let stop_cutoff_time = if cutoff_time == 0 {
                                     cutoff_time
                                 } else {
-                                    cutoff_time + buffer_time
+                                    cutoff_time + 2 // 加上2秒的缓冲时间，防止有矿工未提交结果
                                 };
 
                                 debug!("stop_cutoff_time: {stop_cutoff_time:?}");

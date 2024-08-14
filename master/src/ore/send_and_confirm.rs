@@ -29,7 +29,7 @@ const MIN_SOL_BALANCE: f64 = 0.005;
 
 const RPC_RETRIES: usize = 0;
 const _SIMULATION_RETRIES: usize = 4;
-const GATEWAY_RETRIES: usize = 150;
+const GATEWAY_RETRIES: usize = 3;
 const CONFIRM_RETRIES: usize = 8;
 
 const CONFIRM_DELAY: u64 = 500;
@@ -238,8 +238,10 @@ impl Miner {
 
             // Retry
             tokio::time::sleep(Duration::from_millis(GATEWAY_DELAY)).await;
-            if attempts > GATEWAY_RETRIES {
-                warn!("Max retries");
+
+            attempts += 1;
+            if attempts >= GATEWAY_RETRIES {
+                warn!("最大尝试，放弃提交");
                 return Err(ClientError {
                     request: None,
                     kind: ClientErrorKind::Custom("Max retries".into()),
