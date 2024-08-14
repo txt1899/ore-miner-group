@@ -1,0 +1,7 @@
+{
+  "rpc": "https://rpc.com/",
+  "keypair_path": "I:/id.json",
+  "fee_payer": "I:/id.json",
+  "buffer_time": 5,
+  "dynamic_fee_url": "https://rpc.com/",
+}
