@@ -54,6 +54,9 @@ impl Actor for Scheduler {
 
         ctx.spawn(
             async move {
+                // 检查钱包是否已经注册矿工
+                miner.open(jito.clone()).await;
+
                 loop {
                     addr.send(messages::ResetMiners).await.expect("重置矿工出错");
 
