@@ -10,6 +10,7 @@ pub struct Miner {
     pub dynamic_fee: bool,
     pub rpc_client: Arc<RpcClient>,
     pub fee_payer_filepath: Option<String>,
+    pub jito_client: Arc<RpcClient>,
     pub buffer_time: u64,
 }
 
@@ -21,6 +22,7 @@ impl Miner {
         dynamic_fee_url: Option<String>,
         dynamic_fee: bool,
         fee_payer_filepath: Option<String>,
+        jito_client: Arc<RpcClient>,
         buffer_time: u64,
     ) -> Self {
         Self {
@@ -30,6 +32,7 @@ impl Miner {
             dynamic_fee_url,
             dynamic_fee,
             fee_payer_filepath,
+            jito_client,
             buffer_time,
         }
     }

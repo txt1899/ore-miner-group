@@ -16,6 +16,7 @@ bincode.workspace = true
 
 colored = "2.0"
 cached = "0.46.1"
+rand = "0.8.4"
 reqwest = { version = "0.12", features = ["json"] }
 
 # actix
@@ -24,9 +25,10 @@ actix-web = "4.0.0"
 actix-web-actors = "4.3.0"
 actix-rt = "2.5.0"
 actix-files = "0.6.5"
-rand = "0.8.4"
+awc = "3.2"
 
 tokio = { workspace = true, features = ["macros", "time", "sync", "rt-multi-thread", "signal", "parking_lot", "rt"] }
+futures-util = { workspace = true, features = ["sink"] }
 
 clap.workspace = true
 serde_json.workspace = true
@@ -56,6 +58,7 @@ url = "2.5.2"
 log = "0.4.22"
 
 lib_shared = { path = "../shared" }
+chrono = "0.4.38"
 
 
 

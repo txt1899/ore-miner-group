@@ -99,3 +99,14 @@ pub struct SetServerActor(pub Addr<ServerActor>);
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct SetTaskActor(pub Addr<Scheduler>);
+
+
+// tip
+
+#[derive(Message)]
+#[rtype(result = "()")]
+pub struct TipValue(pub u64);
+
+#[derive(Message)]
+#[rtype(result = "Option<(String, u64)>")]
+pub struct WithTip;

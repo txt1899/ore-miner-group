@@ -42,16 +42,11 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 ### 服务端启动
 ```cmd
 
-# --priority-fee：固定优先费
-# --dynamic-fee： 是否动态优先费
+# --priority-fee： 固定优先费
+# --dynamic-fee：  是否动态优先费
+# --jito：         是否使用jito
 
-# 固定优先费
-
-.\mine-server.exe --priority-fee 50000
-
-# 动态优先费，动态异常使用固定值
-
-.\mine-server.exe --priority-fee 50000 --dynamic-fee
+.\mine-server.exe --priority-fee 50000 --dynamic-fee --jito
 ```
 
 

@@ -1,3 +1,4 @@
+use actix::Addr;
 use std::future::Future;
 
 use colored::*;
@@ -12,7 +13,11 @@ use solana_program::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
 use tracing::{error, info, log::debug};
 
-use crate::ore::{send_and_confirm::ComputeBudget, Miner};
+use crate::{
+    ore::{send_and_confirm::ComputeBudget, Miner},
+    websocket::jito::JitoActor,
+};
+use crate::websocket::messages;
 
 use super::utils::{
     amount_u64_to_string,
@@ -23,7 +28,7 @@ use super::utils::{
 };
 
 impl Miner {
-    pub async fn mine<F, Fut>(&self, hasher: F)
+    pub async fn mine<F, Fut>(&self, jito: Addr<JitoActor>, hasher: F)
     where
         Fut: Future<Output = Option<Solution>> + Sized,
         F: FnOnce(Proof, u64, u32) -> Fut, {
@@ -62,8 +67,10 @@ impl Miner {
                 solution,
             ));
 
+            let value = jito.send(messages::WithTip).await.expect("获取jito小费失败");
+
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false).await.ok();
+            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value).await.ok();
         }
     }
 

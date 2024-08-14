@@ -1,6 +1,8 @@
-use std::time::Duration;
+use std::{str::FromStr, time::Duration};
 
+use chrono::Local;
 use colored::*;
+use ore_api::error::OreError;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
     rpc_config::RpcSendTransactionConfig,
@@ -8,6 +10,8 @@ use solana_client::{
 use solana_program::{
     instruction::Instruction,
     native_token::{lamports_to_sol, sol_to_lamports},
+    pubkey::Pubkey,
+    system_instruction::transfer,
 };
 use solana_rpc_client::spinner;
 use solana_sdk::{
@@ -17,9 +21,9 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
-use tracing::info;
+use tracing::{error, info, warn};
 
-use crate::ore::Miner;
+use crate::ore::{utils, Miner};
 
 const MIN_SOL_BALANCE: f64 = 0.005;
 
@@ -42,10 +46,13 @@ impl Miner {
         ixs: &[Instruction],
         compute_budget: ComputeBudget,
         skip_confirm: bool,
+        tip: Option<(String, u64)>,
     ) -> ClientResult<Signature> {
         let signer = self.signer();
-        let client = self.rpc_client.clone();
         let fee_payer = self.fee_payer();
+
+        let client = self.rpc_client.clone();
+        let mut send_client = self.rpc_client.clone();
 
         // Return error, if balance is zero
         self.check_balance().await;
@@ -55,7 +62,7 @@ impl Miner {
         match compute_budget {
             ComputeBudget::Dynamic => {
                 // TODO simulate
-                final_ixs.push(ComputeBudgetInstruction::set_compute_unit_limit(1_400_000))
+                // final_ixs.push(ComputeBudgetInstruction::set_compute_unit_limit(1_400_000))
             }
             ComputeBudget::Fixed(cus) => {
                 final_ixs.push(ComputeBudgetInstruction::set_compute_unit_limit(cus))
@@ -69,6 +76,16 @@ impl Miner {
         // Add in user instructions
         final_ixs.extend_from_slice(ixs);
 
+        if let Some((account, amount)) = tip {
+            send_client = self.jito_client.clone();
+            final_ixs.push(transfer(
+                &signer.pubkey(),
+                &Pubkey::from_str(account.as_str()).unwrap(),
+                amount,
+            ));
+            info!("Jito小费: {} SOL", lamports_to_sol(amount));
+        }
+
         // Build tx
         let send_cfg = RpcSendTransactionConfig {
             skip_preflight: true,
@@ -77,31 +94,30 @@ impl Miner {
             max_retries: Some(RPC_RETRIES),
             min_context_slot: None,
         };
+
         let mut tx = Transaction::new_with_payer(&final_ixs, Some(&fee_payer.pubkey()));
 
         // Submit tx
-        let progress_bar = spinner::new_progress_bar();
         let mut attempts = 0;
+        info!("开始提交");
         loop {
-            progress_bar.set_message(format!("提交... (尝试 {})", attempts,));
-
             // Sign tx with a new blockhash (after approximately ~45 sec)
             if attempts % 10 == 0 {
                 // Reset the compute unit price
                 if self.dynamic_fee {
                     let fee = match self.dynamic_fee().await {
                         Ok(fee) => {
-                            progress_bar.println(format!("  优先费: {} microlamports", fee));
+                            info!("优先费: {}", fee);
                             fee
                         }
                         Err(err) => {
                             let fee = self.priority_fee.unwrap_or(0);
-                            progress_bar.println(format!(
-                                "  {} {} 使用固定优先费: {} microlamports",
+                            info!(
+                                "  {} {} 使用固定优先费: {}",
                                 "WARNING".bold().yellow(),
                                 err,
                                 fee
-                            ));
+                            );
                             fee
                         }
                     };
@@ -112,10 +128,7 @@ impl Miner {
                 }
 
                 // Resign the tx
-                let (hash, _slot) = client
-                    .get_latest_blockhash_with_commitment(self.rpc_client.commitment())
-                    .await
-                    .unwrap();
+                let (hash, _slot) = utils::get_latest_blockhash_with_retries(&client).await?;
                 if signer.pubkey() == fee_payer.pubkey() {
                     tx.sign(&[&signer], hash);
                 } else {
@@ -124,38 +137,80 @@ impl Miner {
             }
 
             // Send transaction
-            match client.send_transaction_with_config(&tx, send_cfg).await {
+            match send_client.send_transaction_with_config(&tx, send_cfg).await {
                 Ok(sig) => {
                     // Skip confirmation
                     if skip_confirm {
-                        progress_bar.finish_with_message(format!("Sent: {}", sig));
+                        info!("Sent: {}", sig);
                         return Ok(sig);
                     }
 
                     // Confirm transaction
-                    for _ in 0..CONFIRM_RETRIES {
+                    'confirm: for _ in 0..CONFIRM_RETRIES {
                         tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
                         match client.get_signature_statuses(&[sig]).await {
                             Ok(signature_statuses) => {
                                 for status in signature_statuses.value {
                                     if let Some(status) = status {
                                         if let Some(err) = status.err {
-                                            progress_bar.finish_with_message(format!(
-                                                "{}: {}",
-                                                "ERROR".bold().red(),
-                                                err
-                                            ));
-                                            return Err(ClientError {
-                                                request: None,
-                                                kind: ClientErrorKind::Custom(err.to_string()),
-                                            });
-                                        }
-                                        if let Some(confirmation) = status.confirmation_status {
+                                            match err {
+                                                // Instruction error
+                                                solana_sdk::transaction::TransactionError::InstructionError(_, err) => {
+                                                    match err {
+                                                        // Custom instruction error, parse into OreError
+                                                        solana_program::instruction::InstructionError::Custom(err_code) => {
+                                                            match err_code {
+                                                                e if e == OreError::NeedsReset as u32 => {
+                                                                    attempts = 0;
+                                                                    error!( "Needs reset. Retrying...");
+                                                                    break 'confirm;
+                                                                },
+                                                                _ => {
+                                                                    error!("{err:?}");
+                                                                    return Err(ClientError {
+                                                                        request: None,
+                                                                        kind: ClientErrorKind::Custom(err.to_string()),
+                                                                    });
+                                                                }
+                                                            }
+                                                        },
+
+                                                        // Non custom instruction error, return
+                                                        _ => {
+                                                            error!("{err:?}");
+                                                            return Err(ClientError {
+                                                                request: None,
+                                                                kind: ClientErrorKind::Custom(err.to_string()),
+                                                            });
+                                                        }
+                                                    }
+                                                },
+
+                                                // Non instruction error, return
+                                                _ => {
+                                                    error!("{err:?}");
+                                                    return Err(ClientError {
+                                                        request: None,
+                                                        kind: ClientErrorKind::Custom(err.to_string()),
+                                                    });
+                                                }
+                                            }
+                                        } else if let Some(confirmation) =
+                                            status.confirmation_status
+                                        {
                                             match confirmation {
                                                 TransactionConfirmationStatus::Processed => {}
                                                 TransactionConfirmationStatus::Confirmed
                                                 | TransactionConfirmationStatus::Finalized => {
-                                                    info!("{} {}", "OK".bold().green(), sig);
+                                                    let now = Local::now();
+                                                    let formatted_time =
+                                                        now.format("%Y-%m-%d %H:%M:%S").to_string();
+                                                    info!(
+                                                        "{} {} {}",
+                                                        "OK".bold().green(),
+                                                        formatted_time,
+                                                        sig
+                                                    );
                                                     return Ok(sig);
                                                 }
                                             }
@@ -166,11 +221,7 @@ impl Miner {
 
                             // Handle confirmation errors
                             Err(err) => {
-                                progress_bar.set_message(format!(
-                                    "{}: {}",
-                                    "ERROR".bold().red(),
-                                    err.kind().to_string()
-                                ));
+                                error!("{:?}", err.kind());
                             }
                         }
                     }
@@ -178,22 +229,17 @@ impl Miner {
 
                 // Handle submit errors
                 Err(err) => {
-                    progress_bar.set_message(format!(
-                        "{}: {}",
-                        "ERROR".bold().red(),
-                        err.kind().to_string()
-                    ));
+                    error!("{:?}", err.kind());
                 }
             }
 
             // Retry
             tokio::time::sleep(Duration::from_millis(GATEWAY_DELAY)).await;
-            attempts += 1;
             if attempts > GATEWAY_RETRIES {
-                progress_bar.finish_with_message(format!("{}: 最大尝试", "ERROR".bold().red()));
+                warn!("Max retries");
                 return Err(ClientError {
                     request: None,
-                    kind: ClientErrorKind::Custom("最大尝试".into()),
+                    kind: ClientErrorKind::Custom("Max retries".into()),
                 });
             }
         }

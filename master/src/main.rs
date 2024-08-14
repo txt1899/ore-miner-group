@@ -36,7 +36,15 @@ use tracing_subscriber::fmt::{format, time::ChronoLocal};
 use crate::{
     config::load_config_file,
     ore::Miner,
-    websocket::{mediator, messages, messages::UpdateMinerAccount, scheduler, server, session},
+    websocket::{
+        jito,
+        mediator,
+        messages,
+        messages::UpdateMinerAccount,
+        scheduler,
+        server,
+        session,
+    },
 };
 
 mod config;
@@ -57,6 +65,9 @@ struct Args {
 
     #[arg(long, help = "Enable dynamic priority fees", global = true)]
     dynamic_fee: bool,
+
+    #[arg(long, help = "Add jito tip to the miner. Defaults to false", global = true)]
+    jito: bool,
 }
 
 async fn index() -> impl Responder {
@@ -95,6 +106,8 @@ async fn main() -> std::io::Result<()> {
     debug!("{cfg:?}");
 
     let rpc_client = RpcClient::new_with_commitment(cfg.rpc, CommitmentConfig::confirmed());
+    let jito_client =
+        RpcClient::new("https://mainnet.block-engine.jito.wtf/api/v1/transactions".to_string());
     let default_keypair = cfg.keypair_path;
     let fee_payer_path = cfg.fee_payer.unwrap_or(default_keypair.clone());
 
@@ -105,6 +118,7 @@ async fn main() -> std::io::Result<()> {
         cfg.dynamic_fee_url,
         args.dynamic_fee,
         Some(fee_payer_path),
+        Arc::new(jito_client),
         cfg.buffer_time,
     ));
 
@@ -121,8 +135,14 @@ async fn main() -> std::io::Result<()> {
     }
     .start();
 
+    let jito = jito::JitoActor {
+        enable: args.jito,
+        tip: 0,
+    }
+    .start();
+
     // start task actor
-    let task = scheduler::Scheduler::new(mediator.clone(), miner).start();
+    let task = scheduler::Scheduler::new(mediator.clone(), jito, miner).start();
 
     info!("starting HTTP server at http://localhost:8080");
 

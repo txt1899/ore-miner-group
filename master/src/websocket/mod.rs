@@ -3,6 +3,7 @@ pub mod messages;
 pub mod scheduler;
 pub mod server;
 pub mod session;
+pub mod jito;
 
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
 pub enum MinerStatus {

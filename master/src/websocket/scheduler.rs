@@ -5,6 +5,7 @@ use std::{
 };
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, MessageResult, WrapFuture};
+use colored::Colorize;
 use log::{debug, warn};
 use ore_api::state::Proof;
 use tokio::time::{sleep, Instant};
@@ -12,21 +13,27 @@ use tracing::info;
 
 use crate::{
     ore,
-    websocket::{mediator::MediatorActor, messages, MinerStatus},
+    websocket::{jito::JitoActor, mediator::MediatorActor, messages, MinerStatus},
 };
 
 /// 矿工任务调度器
 pub struct Scheduler {
     addr: Addr<MediatorActor>,
+    jito: Addr<JitoActor>,
     best_result: messages::MineResult,
     best_miner: usize,
     miner: Arc<ore::Miner>,
 }
 
 impl Scheduler {
-    pub fn new(mediator: Addr<MediatorActor>, miner: Arc<ore::Miner>) -> Self {
+    pub fn new(
+        mediator: Addr<MediatorActor>,
+        jito: Addr<JitoActor>,
+        miner: Arc<ore::Miner>,
+    ) -> Self {
         Self {
             addr: mediator,
+            jito,
             best_result: Default::default(),
             best_miner: 0,
             miner,
@@ -40,6 +47,7 @@ impl Actor for Scheduler {
     fn started(&mut self, ctx: &mut Self::Context) {
         let this = ctx.address();
         let addr = self.addr.clone();
+        let jito = self.jito.clone();
         let miner = self.miner.clone();
 
         self.addr.do_send(messages::SetTaskActor(this.clone()));
@@ -60,6 +68,7 @@ impl Actor for Scheduler {
                         let start_time = Instant::now();
                         let clone_this = this.clone();
                         let clone_addr = addr.clone();
+                        let buffer_time = miner.buffer_time.clone();
                         let find_hash = |proof: Proof, cutoff_time: u64, min_difficulty: u32| {
                             async move {
                                 // 更新挑战，清空上一次难度
@@ -67,7 +76,19 @@ impl Actor for Scheduler {
                                     .send(messages::NewChallenge(proof.challenge.clone()))
                                     .await
                                     .expect("更新挑战失败");
-                                let stop_cutoff_time = cutoff_time.clone().saturating_add(2);
+
+                                info!(
+                                    "{}",
+                                    "======================== 新纪元 ========================"
+                                        .bold()
+                                        .red()
+                                );
+
+                                let stop_cutoff_time = if cutoff_time == 0 {
+                                    cutoff_time
+                                } else {
+                                    cutoff_time + buffer_time
+                                };
 
                                 debug!("stop_cutoff_time: {stop_cutoff_time:?}");
 
@@ -117,7 +138,7 @@ impl Actor for Scheduler {
                             }
                         };
 
-                        miner.mine(find_hash).await
+                        miner.mine(jito.clone(), find_hash).await
                     } else {
                         sleep(Duration::from_millis(2000)).await;
                     }
