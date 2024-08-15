@@ -62,6 +62,7 @@ pub struct FetchMinerByStatus(pub Vec<MinerStatus>);
 #[derive(Message)]
 #[rtype(usize)]
 pub struct AssignTask {
+    pub active: bool,
     pub challenge: [u8; 32],
     pub cutoff_time: u64,
     pub min_difficulty: u32,
@@ -79,7 +80,7 @@ pub struct UpdateMineResult {
 }
 
 #[derive(Message)]
-#[rtype(result = "Option<Solution>")]
+#[rtype(result = "Option<(u32, Solution)>")]
 pub struct GetSolution(pub u32);
 
 #[derive(Message)]
@@ -99,7 +100,6 @@ pub struct SetServerActor(pub Addr<ServerActor>);
 #[derive(Message)]
 #[rtype(result = "()")]
 pub struct SetTaskActor(pub Addr<Scheduler>);
-
 
 // tip
 

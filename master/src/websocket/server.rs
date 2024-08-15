@@ -155,7 +155,8 @@ impl Handler<messages::AssignTask> for ServerActor {
     fn handle(&mut self, msg: messages::AssignTask, _: &mut Self::Context) -> Self::Result {
         let mut start_nonce = 0_u64;
         let mut success_id = vec![];
-        self.sessions.iter().for_each(|(id, session)| {
+
+        for (id, session) in self.sessions.iter() {
             match session.miner.status {
                 MinerStatus::Working => {
                     //warn!("客户端: {id:?} 工作中")
@@ -177,6 +178,9 @@ impl Handler<messages::AssignTask> for ServerActor {
                             error!("创建客户端消息异常：{err:?}");
                         }
                     }
+                    if !msg.active {
+                        break;
+                    }
                 }
                 MinerStatus::Complete => {
                     //warn!("客户端: {id:?} 工作完成")
@@ -185,7 +189,7 @@ impl Handler<messages::AssignTask> for ServerActor {
                     warn!("miner id:{id:?} 未知状态")
                 }
             }
-        });
+        }
 
         // 更新派送任务的miner状态
         success_id.iter().for_each(|id| {

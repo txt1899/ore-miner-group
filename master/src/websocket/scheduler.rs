@@ -87,6 +87,7 @@ impl Actor for Scheduler {
                                 );
 
                                 let stop_cutoff_time = if cutoff_time == 0 {
+                                    warn!("非活跃状态，派发单任务");
                                     cutoff_time
                                 } else {
                                     cutoff_time + 2 // 加上2秒的缓冲时间，防止有矿工未提交结果
@@ -97,6 +98,7 @@ impl Actor for Scheduler {
                                 // 派发任务到所有矿工，返回派发的矿工数
                                 let cunt = clone_addr
                                     .send(messages::AssignTask {
+                                        active: stop_cutoff_time != 0,
                                         challenge: proof.challenge,
                                         cutoff_time,
                                         min_difficulty: min_difficulty.clone(),
@@ -112,13 +114,13 @@ impl Actor for Scheduler {
 
                                     // 截止时间到后获取解决方案
                                     if start_time.elapsed().as_secs().ge(&stop_cutoff_time) {
-                                        let solution = clone_this
+                                        let result = clone_this
                                             .send(messages::GetSolution(min_difficulty))
                                             .await
                                             .expect("获取解决方案失败");
 
-                                        if solution.is_some() {
-                                            return solution;
+                                        if result.is_some() {
+                                            return result;
                                         }
                                     }
 
@@ -176,9 +178,12 @@ impl Handler<messages::GetSolution> for Scheduler {
                 bs58::encode(self.best_result.hash.h).into_string(),
                 self.best_result.difficulty
             );
-            Some(drillx::Solution::new(
-                self.best_result.hash.d,
-                self.best_result.nonce.to_le_bytes(),
+            Some((
+                self.best_result.difficulty,
+                drillx::Solution::new(
+                    self.best_result.hash.d,
+                    self.best_result.nonce.to_le_bytes(),
+                ),
             ))
         } else {
             None

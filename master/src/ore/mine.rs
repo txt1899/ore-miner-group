@@ -1,4 +1,5 @@
 use actix::Addr;
+use chrono::Local;
 use std::future::Future;
 
 use colored::*;
@@ -11,6 +12,7 @@ use ore_utils::AccountDeserialize;
 use rand::Rng;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
+use tokio::time::Instant;
 use tracing::{error, info, log::debug};
 
 use crate::{
@@ -29,7 +31,7 @@ use super::utils::{
 impl Miner {
     pub async fn mine<F, Fut>(&self, jito: Addr<JitoActor>, hasher: F)
     where
-        Fut: Future<Output = Option<Solution>> + Sized,
+        Fut: Future<Output = Option<(u32, Solution)>> + Sized,
         F: FnOnce(Proof, u64, u32) -> Fut, {
         let signer = self.signer();
 
@@ -40,17 +42,23 @@ impl Miner {
         let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey())
             .await
             .expect("获取Proof信息失败");
-        info!(
-            "质押: {} ORE  乘数: {:12}x",
-            amount_u64_to_string(proof.balance),
-            calculate_multiplier(proof.balance, config.top_balance)
-        );
+        // info!(
+        //     "质押: {} ORE  乘数: {:12}x",
+        //     amount_u64_to_string(proof.balance),
+        //     calculate_multiplier(proof.balance, config.top_balance)
+        // );
 
         // Calculate cutoff time
         let cutoff_time = self.get_cutoff(proof, self.buffer_time).await;
 
+        let start_hash = Instant::now();
         // Run drillx
-        if let Some(solution) = hasher(proof, cutoff_time, config.min_difficulty as u32).await {
+        if let Some((difficulty, solution)) =
+            hasher(proof, cutoff_time, config.min_difficulty as u32).await
+        {
+            // 挖矿耗时
+            let hash_elapsed = start_hash.elapsed();
+
             // Build instruction set
             let mut ixs = vec![ore_api::instruction::auth(proof_pubkey(signer.pubkey()))];
             let mut compute_budget = 480_000;
@@ -70,10 +78,32 @@ impl Miner {
 
             let value = jito.send(messages::WithTip).await.expect("获取jito小费失败");
 
+            let start_submit = Instant::now();
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value)
+            if let Ok(tx) = self
+                .send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value)
                 .await
-                .ok();
+            {
+                // 提交耗时
+                let submit_elapsed = start_submit.elapsed();
+                let new_proof = get_proof_with_authority(&self.rpc_client, signer.pubkey())
+                    .await
+                    .expect("获取Proof信息失败");
+
+                let multiplier = calculate_multiplier(proof.balance, config.top_balance);
+                let earned = amount_u64_to_string(new_proof.balance.saturating_sub(proof.balance));
+
+                info!("乘数: {0:.12}x", multiplier);
+                info!(
+                    "难度: {difficulty}, 收益: {}, 挖矿耗时: {:.2}秒, 提交耗时: {:.2}秒, 总耗时: {:.2}秒",
+                    earned.bold().green(),
+                    hash_elapsed.as_secs_f32(),
+                    submit_elapsed.as_secs_f32(),
+                    (hash_elapsed.as_secs_f32()+ submit_elapsed.as_secs_f32()),
+                );
+
+                info!("{} {}", "OK".bold().green(), tx);
+            }
         }
     }
 
