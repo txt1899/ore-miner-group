@@ -10,7 +10,7 @@ pub mod server;
 #[serde(untagged)]
 pub enum ClientMessageType {
     MinerState(MinerAccount),
-    MineResult(MineResult),
+    MineResult(RemoteMineResult),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

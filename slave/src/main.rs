@@ -54,7 +54,7 @@ async fn main() {
 
     let mut attempts = 0;
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
-    let (tx, mut rx) = mpsc::channel::<client::MineResult>(100);
+    let (tx, mut rx) = mpsc::channel::<client::RemoteMineResult>(100);
     let max_reconnect = args.reconnect.unwrap_or(MAX_RECONNECT);
     'break_loop: loop {
         let mut client = awc::Client::new().ws(format!("{host}/ws"));

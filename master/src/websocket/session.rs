@@ -127,10 +127,8 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for SessionActor {
                                     challenge: data.challenge,
                                     difficulty: data.difficulty,
                                     nonce: data.nonce,
-                                    hash: Hash {
-                                        d: data.digest,
-                                        h: data.hash,
-                                    },
+                                    digest: data.digest,
+                                    hash: data.hash,
                                 };
 
                                 self.server.do_send(messages::UpdateMineResult {

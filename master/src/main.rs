@@ -28,8 +28,7 @@ use clap::Parser;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use tokio::time::sleep;
-use tracing_subscriber::EnvFilter;
-use tracing::{info, debug, error};
+use tracing::{debug, error, info};
 use tracing_subscriber::fmt::{format, time::ChronoLocal};
 
 use crate::{
@@ -46,10 +45,10 @@ use crate::{
     },
 };
 
+mod benchmark;
 mod config;
 pub mod ore;
 mod websocket;
-mod benchmark;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -144,8 +143,6 @@ async fn main() -> std::io::Result<()> {
     // start task actor
     let task = scheduler::Scheduler::new(mediator.clone(), jito, miner).start();
 
-    info!("starting HTTP server at http://localhost:8080");
-
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::from(app_state.clone()))
@@ -159,8 +156,7 @@ async fn main() -> std::io::Result<()> {
             .wrap(Logger::default())
     })
     .workers(2)
-    .bind(("127.0.0.1", 8080))?
-    .bind(("0.0.0.0", 8080))?
+    .bind(("0.0.0.0", cfg.port))?
     .run()
     .await
 }

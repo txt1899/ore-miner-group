@@ -45,12 +45,14 @@ pub struct UpdateMinerAccount {
     pub cores: usize,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct MineResult {
     pub challenge: [u8; 32],
     pub difficulty: u32,
     pub nonce: u64,
-    pub hash: drillx::Hash,
+    pub digest: [u8; 16],
+    pub hash: [u8; 32],
+    // pub hash: drillx::Hash,
 }
 
 // task
@@ -80,7 +82,7 @@ pub struct UpdateMineResult {
 }
 
 #[derive(Message)]
-#[rtype(result = "Option<(u32, Solution)>")]
+#[rtype(result = "Option<MineResult>")]
 pub struct GetSolution(pub u32);
 
 #[derive(Message)]

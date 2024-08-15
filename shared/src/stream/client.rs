@@ -13,7 +13,7 @@ pub struct MinerAccount {
 // hash计算结果
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
-pub struct MineResult {
+pub struct RemoteMineResult {
     /// 挑战随机种子
     pub challenge: [u8; 32],
     /// 随机数

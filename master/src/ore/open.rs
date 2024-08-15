@@ -1,12 +1,13 @@
+use crate::{
+    ore::{send_and_confirm::ComputeBudget, utils::proof_pubkey, Miner},
+    websocket::{jito::JitoActor, messages},
+};
 use actix::Addr;
-use crate::ore::{send_and_confirm::ComputeBudget, utils::proof_pubkey, Miner};
 use solana_sdk::signature::Signer;
 use tracing::info;
-use crate::websocket::jito::JitoActor;
-use crate::websocket::messages;
 
 impl Miner {
-    pub async fn open(&self, jito:Addr<JitoActor>) {
+    pub async fn open(&self, jito: Addr<JitoActor>) {
         // Return early if miner is already registered
         let signer = self.signer();
         let fee_payer = self.fee_payer();

@@ -26,8 +26,9 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 
 ### 服务端配置文件
 - `config.json`
-  - `fee_payer`： gas支付钱包，省略使用矿工钱包
-  - `dynamic_fee_url`：支持Helius、Alchemy、Quiknode、Triton
+- `fee_payer`： gas支付钱包，省略使用矿工钱包
+- `dynamic_fee_url`：支持Helius、Alchemy、Quiknode、Triton
+- `port`： 服务端口
 
 ```json
 {
@@ -35,7 +36,8 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
   "keypair_path": "I:/id.json",
   "fee_payer": "I:/id.json",
   "buffer_time": 5,
-  "dynamic_fee_url": "https://rpc.com/"
+  "dynamic_fee_url": "https://rpc.com/",
+  "port": 8080
 }
 
 ```

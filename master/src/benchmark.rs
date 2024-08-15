@@ -9,8 +9,7 @@ fn main() {
     let challenge = [0; 32];
     let progress_bar = Arc::new(spinner::new_progress_bar());
 
-    progress_bar
-        .set_message(format!("算力测试：{}核，花费 {} sec...", num_cores, TEST_DURATION));
+    progress_bar.set_message(format!("算力测试：{}核，花费 {} sec...", num_cores, TEST_DURATION));
 
     let core_ids = core_affinity::get_core_ids().unwrap();
     let handles: Vec<_> = core_ids

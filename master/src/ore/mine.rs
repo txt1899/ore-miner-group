@@ -43,7 +43,6 @@ impl Miner {
             .await
             .expect("获取Proof信息失败");
 
-
         // Calculate cutoff time
         let cutoff_time = self.get_cutoff(proof, self.buffer_time).await;
 

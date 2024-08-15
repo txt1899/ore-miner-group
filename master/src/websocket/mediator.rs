@@ -8,7 +8,6 @@ use crate::websocket::{messages, scheduler::Scheduler, server::ServerActor, Mine
 pub struct MediatorActor {
     server: Option<Addr<ServerActor>>,
     miner: Option<Addr<Scheduler>>,
-    task_count: usize,
 }
 
 impl Actor for MediatorActor {

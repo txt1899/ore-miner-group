@@ -4,4 +4,5 @@
   "fee_payer": "I:/id.json",
   "buffer_time": 5,
   "dynamic_fee_url": "https://rpc.com/",
+  "port": 8080
 }

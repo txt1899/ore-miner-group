@@ -6,6 +6,7 @@ use std::{
 
 use actix::{Actor, Addr, AsyncContext, Context, Handler, MessageResult, WrapFuture};
 use colored::Colorize;
+use drillx::Solution;
 use log::{debug, warn};
 use ore_api::state::Proof;
 use tokio::time::{sleep, Instant};
@@ -13,7 +14,13 @@ use tracing::info;
 
 use crate::{
     ore,
-    websocket::{jito::JitoActor, mediator::MediatorActor, messages, MinerStatus},
+    websocket::{
+        jito::JitoActor,
+        mediator::MediatorActor,
+        messages,
+        messages::MineResult,
+        MinerStatus,
+    },
 };
 
 /// 矿工任务调度器
@@ -95,6 +102,8 @@ impl Actor for Scheduler {
 
                                 debug!("stop_cutoff_time: {stop_cutoff_time:?}");
 
+                                let start_assign = Instant::now();
+
                                 // 派发任务到所有矿工，返回派发的矿工数
                                 let cunt = clone_addr
                                     .send(messages::AssignTask {
@@ -106,12 +115,14 @@ impl Actor for Scheduler {
                                     .await
                                     .expect("派发任务失败");
 
-                                info!("派发矿工数: {cunt:?}");
+                                info!(
+                                    "派发矿工数: {cunt:?}, 用时: {}毫秒, {stop_cutoff_time}秒后提交",
+                                    start_assign.elapsed().as_millis()
+                                );
 
                                 // 等待挖矿结束获取解决方案
                                 loop {
                                     sleep(Duration::from_millis(500)).await;
-
                                     // 截止时间到后获取解决方案
                                     if start_time.elapsed().as_secs().ge(&stop_cutoff_time) {
                                         let result = clone_this
@@ -119,9 +130,17 @@ impl Actor for Scheduler {
                                             .await
                                             .expect("获取解决方案失败");
 
-                                        if result.is_some() {
-                                            return result;
-                                        }
+                                        if let Some(r) = result {
+                                            info!(
+                                                "最优哈希: {} (难度: {})",
+                                                bs58::encode(r.hash).into_string(),
+                                                r.difficulty
+                                            );
+                                            return Some((
+                                                r.difficulty,
+                                                Solution::new(r.digest, r.nonce.to_le_bytes()),
+                                            ));
+                                        };
                                     }
 
                                     // 可能网络问题导致矿工全部掉线
@@ -173,18 +192,7 @@ impl Handler<messages::GetSolution> for Scheduler {
 
     fn handle(&mut self, msg: messages::GetSolution, _: &mut Self::Context) -> Self::Result {
         MessageResult(if self.best_result.difficulty.ge(&msg.0) {
-            info!(
-                "最优哈希: {} (难度: {})",
-                bs58::encode(self.best_result.hash.h).into_string(),
-                self.best_result.difficulty
-            );
-            Some((
-                self.best_result.difficulty,
-                drillx::Solution::new(
-                    self.best_result.hash.d,
-                    self.best_result.nonce.to_le_bytes(),
-                ),
-            ))
+            Some(self.best_result.clone())
         } else {
             None
         })

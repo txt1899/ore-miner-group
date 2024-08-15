@@ -7,12 +7,11 @@ use std::{
 };
 
 use drillx::{equix, Hash};
-use tracing::debug;
-use tracing::field::debug;
+use tracing::{debug, field::debug};
 
 use lib_shared::stream::{client, server};
 
-pub fn find_hash(cores: usize, task: server::Task) -> client::MineResult {
+pub fn find_hash(cores: usize, task: server::Task) -> client::RemoteMineResult {
     let core_ids = core_affinity::get_core_ids().unwrap();
     let counter = Arc::new(AtomicUsize::new(0));
     let handles: Vec<_> = core_ids
@@ -91,7 +90,7 @@ pub fn find_hash(cores: usize, task: server::Task) -> client::MineResult {
         }
     }
 
-    client::MineResult {
+    client::RemoteMineResult {
         challenge: task.challenge,
         nonce_range: task.nonce_range,
         workload: counter.load(Ordering::SeqCst) as u64,
