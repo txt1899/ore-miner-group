@@ -1,7 +1,13 @@
 use crate::{ore::utils::Tip, websocket::messages};
 use actix::{Actor, AsyncContext, Context, Handler, WrapFuture};
+use actix_web_actors::ws::ProtocolError;
+use awc::{BoxedSocket, ClientResponse};
 use futures_util::StreamExt;
 use rand::seq::SliceRandom;
+use std::time::Duration;
+use log::warn;
+use tokio::time::sleep;
+use tracing::{error, info};
 
 pub struct JitoActor {
     pub enable: bool,
@@ -17,20 +23,44 @@ impl Actor for JitoActor {
             ctx.spawn(
                 async move {
                     let url = "ws://bundles-api-rest.jito.wtf/api/v1/bundles/tip_stream";
-                    let (_, mut ws) = awc::Client::new().ws(url).connect().await.unwrap();
-
-                    while let Some(message) = ws.next().await {
-                        if let Ok(awc::ws::Frame::Text(msg)) = message {
-                            let text = String::from_utf8(msg.to_vec()).expect("Invalid UTF-8");
-                            if let Ok(tips) = serde_json::from_str::<Vec<Tip>>(&text) {
-                                for item in tips {
-                                    let tip = (item.landed_tips_50th_percentile
-                                        * (10_f64).powf(9.0))
-                                        as u64;
-                                    this.send(messages::TipValue(tip)).await.expect("更新jito小费失败");
+                    let mut attempts = 0;
+                    loop {
+                        match awc::Client::new().ws(url).connect().await {
+                            Ok((_, mut ws)) => {
+                                attempts = 0;
+                                while let Some(message) = ws.next().await {
+                                    match message {
+                                        Ok(awc::ws::Frame::Text(msg)) => {
+                                            let text = String::from_utf8(msg.to_vec())
+                                                .expect("Invalid UTF-8");
+                                            if let Ok(tips) =
+                                                serde_json::from_str::<Vec<Tip>>(&text)
+                                            {
+                                                for item in tips {
+                                                    let tip = (item.landed_tips_50th_percentile
+                                                        * (10_f64).powf(9.0))
+                                                        as u64;
+                                                    this.send(messages::TipValue(tip))
+                                                        .await
+                                                        .expect("更新jito小费失败");
+                                                }
+                                            }
+                                        }
+                                        Err(err) => {
+                                            error!("{err:?}");
+                                            break;
+                                        }
+                                        _ => {}
+                                    }
                                 }
                             }
-                        }
+                            Err(err) => {
+                                error!("{err:?}");
+                            }
+                        };
+                        attempts += 1;
+                        warn!("jito重连中({})...", attempts);
+                        sleep(Duration::from_secs(5)).await;
                     }
                 }
                 .into_actor(self),
