@@ -45,9 +45,7 @@ impl Actor for JitoActor {
                                                     let tip = (item.landed_tips_50th_percentile
                                                         * (10_f64).powf(9.0))
                                                         as u64;
-                                                    this.send(messages::TipValue(tip))
-                                                        .await
-                                                        .expect("更新jito小费失败");
+                                                    this.send(messages::TipValue(tip)).await.ok();
                                                 }
                                             }
                                         }
