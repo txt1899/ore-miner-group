@@ -52,10 +52,11 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 
 ### 客户端启动
 ```cmd
-# --url:    服务器地址
-# --cores:  核心数（不提供使用全部核心）
-# --wallet: 预留（随便填）
+# --url:        服务器地址
+# --reconnect:  重连次数（默认10次，每次间隔10秒）
+# --cores:      核心数（不提供使用全部核心）
+# --wallet:     预留（随便填）
 
-.\mine-client.exe --url "ws://127.0.0.1:8080" --cores 16 --wallet "any" 
+.\mine-client.exe --url "ws://127.0.0.1:8080" --reconnect 10 --cores 16 --wallet "any" 
 
 ```

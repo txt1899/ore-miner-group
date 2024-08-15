@@ -1,10 +1,10 @@
 use std::{fmt::format, sync::Arc, time::Duration};
 
 use actix_web::web::Bytes;
-use awc::ws;
+use awc::{ws, BoxedSocket, ClientResponse};
 use clap::{command, Parser, Subcommand};
 use futures_util::{SinkExt as _, StreamExt as _};
-use tokio::{select, sync::mpsc};
+use tokio::{select, sync::mpsc, time::sleep};
 
 use lib_shared::{
     stream,
@@ -17,6 +17,7 @@ use crate::find_hash::find_hash;
 mod find_hash;
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
+const MAX_RECONNECT: u8 = 10;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -31,6 +32,9 @@ struct Args {
         global = true
     )]
     cores: Option<usize>,
+
+    #[arg(long, value_name = "RECONNECT", help = "The number of reconnect times", global = true)]
+    reconnect: Option<u8>,
 
     #[arg(
         long,
@@ -48,66 +52,90 @@ async fn main() {
     let host = args.url.expect("Server url can not be empty");
     let cores = args.cores.unwrap_or(num_cpus::get());
 
-    let (res, mut ws) = awc::Client::new().ws(format!("{host}/ws")).connect().await.unwrap();
-
-    match stream::create_client_message(0, stream::client::MinerAccount {
-        pubkey: args.wallet,
-        cores,
-    }) {
-        Ok(msg) => ws.send(ws::Message::Text(msg.into())).await.unwrap(),
-        Err(err) => error!("构建客户端消息失败: {err:?}"),
-    }
-
+    let mut attempts = 0;
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
-
     let (tx, mut rx) = mpsc::channel::<client::MineResult>(100);
+    let max_reconnect = args.reconnect.unwrap_or(MAX_RECONNECT);
+    'break_loop: loop {
+        let mut client = awc::Client::new().ws(format!("{host}/ws"));
+        match client.connect().await {
+            Ok((_, mut ws)) => {
+                attempts = 0;
 
-    loop {
-        select! {
-            _= heartbeat.tick() => {
-                ws.send(ws::Message::Ping(Bytes::new())).await.unwrap();
-                debug!("发送心跳包");
-            }
-            Some(data) = rx.recv() => {
-                debug!("收到结果");
-                info!("最高难度: {:?}",data.difficulty);
-                 match stream::create_client_message(0, data) {
-                    Ok(msg) =>  ws.send(ws::Message::Text(msg.into())).await.unwrap(),
+                // 发送客户端信息
+                match stream::create_client_message(0, stream::client::MinerAccount {
+                    pubkey: args.wallet.clone(),
+                    cores,
+                }) {
+                    Ok(msg) => ws.send(ws::Message::Text(msg.into())).await.unwrap(),
                     Err(err) => error!("构建客户端消息失败: {err:?}"),
                 }
-            }
-            Some(msg) = ws.next() => {
-                match msg {
-                    Ok(ws::Frame::Text(msg)) => {
-                        let text = String::from_utf8(msg.to_vec()).expect("Invalid UTF-8");
-                        match serde_json::from_str::<FromServerData<ServerMessageType>>(text.as_str()) {
-                            Ok(data) => match data.msg {
-                                ServerMessageType::Task(data) => {
-                                    info!("新挑战: {:?} 工作量：{}-{} 剩余时间：{:?}",
-                                        bs58::encode(data.challenge).into_string(),
-                                        data.nonce_range.start,
-                                        data.nonce_range.end,
-                                        data.cutoff_time);
 
-                                    let clone_tx = tx.clone();
-
-                                    // find_hash 是一个计密集型任务，垄断了事件循环，导致心跳无法及时发送
-                                    // 使用 tokio::task::spawn_blocking 将其放到线程池中执行
-                                    tokio::task::spawn_blocking(move || {
-                                        let result = find_hash(cores, data);
-                                        clone_tx.blocking_send(result).expect("发送结果错误");
-                                    });
-                                }
+                loop {
+                    select! {
+                        _= heartbeat.tick() => {
+                            if let Err(err ) = ws.send(ws::Message::Ping(Bytes::new())).await {
+                                error!("发送心跳包失败: {err:?}");
+                                break;
                             }
-                            Err(err) => error!("解析JSON失败: {err:?}\n信息：{text:?}"),
+                        }
+                        Some(data) = rx.recv() => {
+                            info!("最高难度: {:?}",data.difficulty);
+                            match stream::create_client_message(0, data) {
+                                Ok(msg) =>  ws.send(ws::Message::Text(msg.into())).await.unwrap(),
+                                Err(err) => error!("构建客户端消息失败: {err:?}"),
+                            }
+                        }
+                        Some(msg) = ws.next() => {
+                            match msg {
+                                Ok(ws::Frame::Text(msg)) => {
+                                    let text = String::from_utf8(msg.to_vec()).expect("Invalid UTF-8");
+                                    match serde_json::from_str::<FromServerData<ServerMessageType>>(text.as_str()) {
+                                        Ok(data) => match data.msg {
+                                            ServerMessageType::Task(data) => {
+                                                info!("新挑战: {:?} 工作量：{}-{} 剩余时间：{:?}",
+                                                    bs58::encode(data.challenge).into_string(),
+                                                    data.nonce_range.start,
+                                                    data.nonce_range.end,
+                                                    data.cutoff_time);
+
+                                                let clone_tx = tx.clone();
+
+                                                // find_hash 是一个计密集型任务，垄断了事件循环，导致心跳无法及时发送
+                                                // 使用 tokio::task::spawn_blocking 将其放到线程池中执行
+                                                tokio::task::spawn_blocking(move || {
+                                                    let result = find_hash(cores, data);
+                                                    clone_tx.blocking_send(result).expect("发送结果错误");
+                                                });
+                                            }
+                                        }
+                                        Err(err) => error!("解析JSON失败: {err:?}\n信息：{text:?}"),
+                                    }
+                                }
+                                Ok(ws::Frame::Pong(_)) => {
+                                    debug!("收到心跳包");
+                                    // respond to ping probes
+                                    // ws.send(ws::Message::Pong(Bytes::new())).await.unwrap();
+                                }
+                                Ok(ws::Frame::Close(resion)) => {
+                                    if let Some(code) = resion {
+                                        error!("关闭连接: {code:?}");
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
                         }
                     }
-                    Ok(ws::Frame::Pong(_)) => {
-                        debug!("收到心跳包");
-                        // respond to ping probes
-                        // ws.send(ws::Message::Pong(Bytes::new())).await.unwrap();
-                    }
-                    _ => {}
+                }
+            }
+            Err(err) => {
+                attempts += 1;
+                error!("{err:?}");
+                info!("重连中...{}/{}", attempts, max_reconnect);
+                sleep(Duration::from_secs(10)).await;
+                if attempts >= max_reconnect {
+                    break 'break_loop;
                 }
             }
         }

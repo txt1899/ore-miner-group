@@ -151,7 +151,7 @@ impl Actor for Scheduler {
     }
 }
 
-// 矿工上传挖矿结果
+// 接收矿工上传挖矿的结果
 impl Handler<messages::UpdateMineResult> for Scheduler {
     type Result = ();
 
