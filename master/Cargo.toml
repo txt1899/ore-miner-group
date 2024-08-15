@@ -7,6 +7,10 @@ edition = "2021"
 name = "mine-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "benchmark"
+path = "src/benchmark.rs"
+
 [dependencies]
 
 bs58.workspace = true

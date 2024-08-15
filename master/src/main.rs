@@ -49,6 +49,7 @@ use crate::{
 mod config;
 pub mod ore;
 mod websocket;
+mod benchmark;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]

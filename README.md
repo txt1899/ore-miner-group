@@ -19,6 +19,7 @@ cargo build --release
 ```cmd
 C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 │  config.json
+│  benchmark.exe
 │  mine-client.exe
 │  mine-server.exe
 ```
