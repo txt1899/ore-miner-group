@@ -1,11 +1,15 @@
 use crate::{ore::utils::Tip, websocket::messages};
 use actix::{Actor, AsyncContext, Context, Handler, WrapFuture};
-use actix_web_actors::ws::ProtocolError;
 use awc::{BoxedSocket, ClientResponse};
-use futures_util::StreamExt;
+use futures_util::{
+    stream::{Next, TryNext},
+    SinkExt,
+    StreamExt,
+    TryStreamExt,
+};
+use log::warn;
 use rand::seq::SliceRandom;
 use std::time::Duration;
-use log::warn;
 use tokio::time::sleep;
 use tracing::{error, info};
 
@@ -19,6 +23,7 @@ impl Actor for JitoActor {
 
     fn started(&mut self, ctx: &mut Self::Context) {
         if self.enable {
+            info!("jito小费开启");
             let this = ctx.address();
             ctx.spawn(
                 async move {
@@ -28,9 +33,9 @@ impl Actor for JitoActor {
                         match awc::Client::new().ws(url).connect().await {
                             Ok((_, mut ws)) => {
                                 attempts = 0;
-                                while let Some(message) = ws.next().await {
+                                while let Ok(message) = ws.try_next().await {
                                     match message {
-                                        Ok(awc::ws::Frame::Text(msg)) => {
+                                        Some(awc::ws::Frame::Text(msg)) => {
                                             let text = String::from_utf8(msg.to_vec())
                                                 .expect("Invalid UTF-8");
                                             if let Ok(tips) =
@@ -46,13 +51,13 @@ impl Actor for JitoActor {
                                                 }
                                             }
                                         }
-                                        Err(err) => {
-                                            error!("{err:?}");
-                                            break;
+                                        Some(awc::ws::Frame::Ping(msg)) => {
+                                            ws.send(awc::ws::Message::Pong(msg)).await.ok();
                                         }
                                         _ => {}
                                     }
                                 }
+                                warn!("jito连接断开");
                             }
                             Err(err) => {
                                 error!("{err:?}");
