@@ -42,11 +42,7 @@ impl Miner {
         let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey())
             .await
             .expect("获取Proof信息失败");
-        // info!(
-        //     "质押: {} ORE  乘数: {:12}x",
-        //     amount_u64_to_string(proof.balance),
-        //     calculate_multiplier(proof.balance, config.top_balance)
-        // );
+
 
         // Calculate cutoff time
         let cutoff_time = self.get_cutoff(proof, self.buffer_time).await;
@@ -90,10 +86,13 @@ impl Miner {
                     .await
                     .expect("获取Proof信息失败");
 
-                let multiplier = calculate_multiplier(proof.balance, config.top_balance);
                 let earned = amount_u64_to_string(new_proof.balance.saturating_sub(proof.balance));
 
-                info!("乘数: {0:.12}x", multiplier);
+                info!(
+                    "质押: {} ORE  乘数: {:12}x",
+                    amount_u64_to_string(new_proof.balance),
+                    calculate_multiplier(new_proof.balance, config.top_balance)
+                );
                 info!(
                     "难度: {difficulty}, 收益: {}, 挖矿耗时: {:.2}秒, 提交耗时: {:.2}秒, 总耗时: {:.2}秒",
                     earned.bold().green(),
