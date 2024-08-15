@@ -15,9 +15,8 @@ use tracing::{error, info, log::debug};
 
 use crate::{
     ore::{send_and_confirm::ComputeBudget, Miner},
-    websocket::jito::JitoActor,
+    websocket::{jito::JitoActor, messages},
 };
-use crate::websocket::messages;
 
 use super::utils::{
     amount_u64_to_string,
@@ -37,8 +36,10 @@ impl Miner {
         // Start mining loop
 
         // Fetch proof
-        let config = get_config(&self.rpc_client).await;
-        let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey()).await;
+        let config = get_config(&self.rpc_client).await.expect("获取配置失败");
+        let proof = get_proof_with_authority(&self.rpc_client, signer.pubkey())
+            .await
+            .expect("获取Proof信息失败");
         info!(
             "质押: {} ORE  乘数: {:12}x",
             amount_u64_to_string(proof.balance),
@@ -70,7 +71,9 @@ impl Miner {
             let value = jito.send(messages::WithTip).await.expect("获取jito小费失败");
 
             // Submit transaction
-            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value).await.ok();
+            self.send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value)
+                .await
+                .ok();
         }
     }
 
@@ -86,7 +89,7 @@ impl Miner {
     }
 
     async fn should_reset(&self, config: Config) -> bool {
-        let clock = get_clock(&self.rpc_client).await;
+        let clock = get_clock(&self.rpc_client).await.expect("获取时钟失败");
         config
 			.last_reset_at
 			.saturating_add(EPOCH_DURATION)
@@ -95,7 +98,7 @@ impl Miner {
     }
 
     async fn get_cutoff(&self, proof: Proof, buffer_time: u64) -> u64 {
-        let clock = get_clock(&self.rpc_client).await;
+        let clock = get_clock(&self.rpc_client).await.expect("获取时钟失败");
         proof
             .last_hash_at
             .saturating_add(60)
