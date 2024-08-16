@@ -147,14 +147,15 @@ impl Miner {
                     }
                     sigs.push(sig);
                     debug!("signature: {:?}", sig);
+
                     // Confirm transaction
                     'confirm: for _ in 0..CONFIRM_RETRIES {
                         tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
                         match client.get_signature_statuses(&sigs[..]).await {
                             Ok(signature_statuses) => {
-                                for status in signature_statuses.value {
+                                for (index, status) in signature_statuses.value.iter().enumerate() {
                                     if let Some(status) = status {
-                                        if let Some(err) = status.err {
+                                        if let Some(ref err) = status.err {
                                             match err {
                                                 // Instruction error
                                                 solana_sdk::transaction::TransactionError::InstructionError(_, err) => {
@@ -162,10 +163,14 @@ impl Miner {
                                                         // Custom instruction error, parse into OreError
                                                         solana_program::instruction::InstructionError::Custom(err_code) => {
                                                             match err_code {
-                                                                e if e == OreError::NeedsReset as u32 => {
+                                                                e if (OreError::NeedsReset as u32).eq(e) => {
                                                                     attempts = 0;
-                                                                    error!( "Needs reset. Retrying...");
-                                                                    break 'confirm;
+                                                                    // 这是一个合约错误，hash随机种子并没更新，可以重新发送行的交易
+                                                                    // 是否可以清空sigs，由于链上确认的延迟，不能保证其中某个tx无效
+                                                                    // 所有仅删除引发错误的tx，
+                                                                    sigs.remove(index);
+                                                                    error!( "Needs reset. 重试...");
+                                                                    break 'confirm
                                                                 },
                                                                 _ => {
                                                                     error!("{err:?}");
@@ -197,7 +202,7 @@ impl Miner {
                                                     });
                                                 }
                                             }
-                                        } else if let Some(confirmation) =
+                                        } else if let Some(ref confirmation) =
                                             status.confirmation_status
                                         {
                                             debug!("confirmation: {:?}", confirmation);
