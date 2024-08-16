@@ -51,6 +51,7 @@ async fn main() {
     let args = Args::parse();
     let host = args.url.expect("Server url can not be empty");
     let cores = args.cores.unwrap_or(num_cpus::get());
+    let core_count = heim_cpu::logical_count().await.unwrap();
 
     let mut attempts = 0;
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -104,7 +105,7 @@ async fn main() {
                                                 // find_hash 是一个计密集型任务，垄断了事件循环，导致心跳无法及时发送
                                                 // 使用 tokio::task::spawn_blocking 将其放到线程池中执行
                                                 tokio::task::spawn_blocking(move || {
-                                                    let result = find_hash(cores, data);
+                                                    let result = find_hash(cores, core_count, data);
                                                     clone_tx.blocking_send(result).expect("发送结果错误");
                                                 });
                                             }
