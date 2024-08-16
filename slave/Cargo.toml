@@ -11,6 +11,7 @@ path = "src/main.rs"
 bs58.workspace = true
 num_cpus.workspace = true
 core_affinity.workspace = true
+heim-cpu.workspace = true
 
 awc = "3.2"
 actix-web = "4.0.0"

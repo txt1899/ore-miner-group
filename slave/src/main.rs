@@ -1,5 +1,4 @@
-use std::{fmt::format, sync::Arc, time::Duration};
-
+use std::{fmt::format, sync::Arc, time::Duration, num::ParseIntError};
 use actix_web::web::Bytes;
 use awc::{ws, BoxedSocket, ClientResponse};
 use clap::{command, Parser, Subcommand};
@@ -29,9 +28,19 @@ struct Args {
         long,
         value_name = "CORES_COUNT",
         help = "The number of CPU cores to allocate to mining",
-        global = true
+        global = true,
+        conflicts_with = "cores_bind"
     )]
     cores: Option<usize>,
+
+    #[arg(
+        long,
+        value_name = "CORES_BIND",
+        help = "The CPU cores to bind to mining",
+        global = true,
+        conflicts_with = "cores"
+    )]
+    cores_bind: Option<String>,
 
     #[arg(long, value_name = "RECONNECT", help = "The number of reconnect times", global = true)]
     reconnect: Option<u8>,
@@ -49,8 +58,9 @@ async fn main() {
     lib_shared::log::init_log();
 
     let args = Args::parse();
+    let core_ids = parse_cores_bind(&args).expect("Invalid cores_bind");
+    let cores = heim_cpu::logical_count().await.unwrap() as usize;
     let host = args.url.expect("Server url can not be empty");
-    let cores = args.cores.unwrap_or(num_cpus::get());
 
     let mut attempts = 0;
     let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
@@ -65,7 +75,7 @@ async fn main() {
                 // 发送客户端信息
                 match stream::create_client_message(0, stream::client::MinerAccount {
                     pubkey: args.wallet.clone(),
-                    cores,
+                    cores: core_ids.len(),
                 }) {
                     Ok(msg) => ws.send(ws::Message::Text(msg.into())).await.unwrap(),
                     Err(err) => error!("构建客户端消息失败: {err:?}"),
@@ -103,8 +113,9 @@ async fn main() {
 
                                                 // find_hash 是一个计密集型任务，垄断了事件循环，导致心跳无法及时发送
                                                 // 使用 tokio::task::spawn_blocking 将其放到线程池中执行
+                                                let core_ids = core_ids.clone();
                                                 tokio::task::spawn_blocking(move || {
-                                                    let result = find_hash(cores, data);
+                                                    let result = find_hash(&core_ids, cores, data);
                                                     clone_tx.blocking_send(result).expect("发送结果错误");
                                                 });
                                             }
@@ -140,4 +151,25 @@ async fn main() {
             }
         }
     }
+}
+
+fn parse_cores_bind(args: &Args) -> Result<Vec<usize>, ParseIntError> {
+    if let Some(bind_str) = &args.cores_bind {
+        let mut cores = vec![];
+        for s in bind_str.split(',') {
+            match s.split_once('-') {
+                Some((start, end)) => {
+                    let start = start.parse::<usize>()?;
+                    let end = end.parse::<usize>()?;
+                    cores.extend(start..=end);
+                }
+                None => {
+                    cores.push(s.parse::<usize>()?);
+                }
+            }
+        }
+        return Ok(cores)
+    }
+    let cores = args.cores.unwrap_or_else(|| num_cpus::get());
+    Ok((0..cores).collect())
 }

@@ -5,18 +5,18 @@ use std::{
     },
     time::Instant,
 };
-
+use core_affinity::CoreId;
 use drillx::{equix, Hash};
 use tracing::{debug, field::debug};
 
 use lib_shared::stream::{client, server};
 
-pub fn find_hash(cores: usize, task: server::Task) -> client::RemoteMineResult {
-    let core_ids = core_affinity::get_core_ids().unwrap();
+pub fn find_hash(core_ids: &[usize], cores: usize, task: server::Task) -> client::RemoteMineResult {
     let counter = Arc::new(AtomicUsize::new(0));
     let handles: Vec<_> = core_ids
-        .into_iter()
-        .map(|i| {
+        .iter()
+        .map(|&i| {
+            let i = CoreId { id: i };
             std::thread::spawn({
                 let mut memory = equix::SolverMemory::new();
                 let total_nonce = task.nonce_range.end - task.nonce_range.start;
