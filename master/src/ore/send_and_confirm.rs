@@ -164,7 +164,7 @@ impl Miner {
                                                         solana_program::instruction::InstructionError::Custom(err_code) => {
                                                             match err_code {
                                                                 e if (OreError::NeedsReset as u32).eq(e) => {
-                                                                    attempts = 0;
+                                                                    // attempts = 0;
                                                                     // 这是一个合约错误，hash随机种子并没更新，可以重新发送行的交易
                                                                     // 是否可以清空sigs，由于链上确认的延迟，不能保证其中某个tx无效
                                                                     // 所有仅删除引发错误的tx，

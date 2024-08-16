@@ -5,6 +5,9 @@
 
 后期优化希望大家共同努力，一起完善。欢迎提交PR。
 
+
+[Discord](https://discord.gg/jsgwCwbU)  方便推送更新的通知
+
 ### 使用
 
 ```cmd
