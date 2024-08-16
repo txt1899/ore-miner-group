@@ -14,6 +14,7 @@ fn main() {
     let core_ids = core_affinity::get_core_ids().unwrap();
     let handles: Vec<_> = core_ids
         .into_iter()
+        .take(num_cores as usize)
         .map(|i| {
             std::thread::spawn({
                 move || {
@@ -23,11 +24,6 @@ fn main() {
                     let mut nonce = first_nonce;
                     let mut memory = equix::SolverMemory::new();
                     loop {
-                        // Return if core should not be used
-                        if (i.id as u64).ge(&num_cores) {
-                            return 0;
-                        }
-
                         // Pin to core
                         let _ = core_affinity::set_for_current(i);
 

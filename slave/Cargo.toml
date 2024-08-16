@@ -15,6 +15,7 @@ core_affinity.workspace = true
 awc = "3.2"
 actix-web = "4.0.0"
 tokio-stream = "0.1.15"
+heim-cpu = "0.0.11"
 
 clap.workspace = true
 drillx.workspace = true

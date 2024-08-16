@@ -11,23 +11,20 @@ use tracing::{debug, field::debug};
 
 use lib_shared::stream::{client, server};
 
-pub fn find_hash(cores: usize, task: server::Task) -> client::RemoteMineResult {
+pub fn find_hash(cores: usize, core_count: u64, task: server::Task) -> client::RemoteMineResult {
     let core_ids = core_affinity::get_core_ids().unwrap();
     let counter = Arc::new(AtomicUsize::new(0));
     let handles: Vec<_> = core_ids
         .into_iter()
+        .take(cores)
         .map(|i| {
             std::thread::spawn({
                 let mut memory = equix::SolverMemory::new();
                 let total_nonce = task.nonce_range.end - task.nonce_range.start;
-                let step = total_nonce.saturating_div(cores as u64);
+                let step = total_nonce.saturating_div(core_count);
                 let t = task.clone();
                 let c = counter.clone();
                 move || {
-                    // Return if core should not be used
-                    if (i.id).ge(&cores) {
-                        return (0, 0, Hash::default());
-                    }
                     // Pin to core
                     let _ = core_affinity::set_for_current(i);
                     let timer = Instant::now();

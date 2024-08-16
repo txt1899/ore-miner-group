@@ -63,3 +63,12 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 .\mine-client.exe --url "ws://127.0.0.1:8080" --reconnect 10 --cores 16 --wallet "any" 
 
 ```
+
+#### 客户端多开
+
+在 Linux 下使用多路 CPU 时，可以使用 `taskset` 命令来绑定 CPU 核心进行多开
+
+```shell
+taskset -c 0-63 ./miner-client --url "ws://127.0.0.1:8080" --reconnect 10 --cores 64 --wallet "any"
+taskset -c 64-127 ./miner-client --url "ws://127.0.0.1:8080" --reconnect 10 --cores 64 --wallet "any"
+```
