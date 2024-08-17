@@ -12,7 +12,7 @@ use ore_utils::AccountDeserialize;
 use rand::Rng;
 use solana_program::pubkey::Pubkey;
 use solana_sdk::signer::Signer;
-use tokio::time::Instant;
+use tokio::time::{sleep, Instant};
 use tracing::{error, info, log::debug};
 
 use crate::{
@@ -81,6 +81,10 @@ impl Miner {
             {
                 // 提交耗时
                 let submit_elapsed = start_submit.elapsed();
+
+                // 尝试等待200ms，更新Proof
+                sleep(std::time::Duration::from_millis(200)).await;
+
                 let new_proof = get_proof_with_authority(&self.rpc_client, signer.pubkey())
                     .await
                     .expect("获取Proof信息失败");
