@@ -4,5 +4,7 @@
   "fee_payer": "I:/id.json",
   "buffer_time": 5,
   "dynamic_fee_url": "https://rpc.com/",
+  "jito_url": "https://mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "script": false,
   "port": 8080
 }

@@ -1,0 +1,18 @@
+
+-- dynamic_gas
+-- 动态计算优先gas
+-- difficulty: 当前难度
+-- gas: 当前gas
+-- return: u64
+function dynamic_gas(difficulty, gas_lamports)
+    return gas_lamports;
+end
+
+-- dynamic_tip
+-- 动态计算jit小费
+-- difficulty: 当前难度
+-- tip_lamports: 当前jito小费
+-- return: u64
+function dynamic_tip(difficulty, tip_lamports)
+    return tip_lamports;
+end

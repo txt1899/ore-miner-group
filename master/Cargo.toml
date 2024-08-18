@@ -5,11 +5,11 @@ edition = "2021"
 
 [[bin]]
 name = "mine-server"
-path = "src/main.rs"
+path = "src/bin/server.rs"
 
 [[bin]]
 name = "benchmark"
-path = "src/benchmark.rs"
+path = "src/bin/benchmark.rs"
 
 [dependencies]
 
@@ -22,6 +22,8 @@ colored = "2.0"
 cached = "0.46.1"
 rand = "0.8.4"
 reqwest = { version = "0.12", features = ["json"] }
+chrono = "0.4.38"
+mlua = { version = "0.9.9", features = ["lua54", "vendored", "macros"] }
 
 # actix
 actix = "0.13.3"
@@ -62,7 +64,7 @@ url = "2.5.2"
 log = "0.4.22"
 
 lib_shared = { path = "../shared" }
-chrono = "0.4.38"
+
 
 
 

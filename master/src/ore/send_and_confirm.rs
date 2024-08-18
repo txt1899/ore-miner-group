@@ -1,7 +1,8 @@
-use std::{str::FromStr, time::Duration};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use chrono::Local;
 use colored::*;
+use futures_util::future;
 use ore_api::error::OreError;
 use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
@@ -13,7 +14,7 @@ use solana_program::{
     pubkey::Pubkey,
     system_instruction::transfer,
 };
-use solana_rpc_client::spinner;
+use solana_rpc_client::{nonblocking::rpc_client::RpcClient, spinner};
 use solana_sdk::{
     commitment_config::CommitmentLevel,
     compute_budget::ComputeBudgetInstruction,
@@ -45,8 +46,9 @@ impl Miner {
         &self,
         ixs: &[Instruction],
         compute_budget: ComputeBudget,
-        skip_confirm: bool,
+        _skip_confirm: bool,
         tip: Option<(String, u64)>,
+        difficulty: Option<u32>,
     ) -> ClientResult<Signature> {
         let signer = self.signer();
         let fee_payer = self.fee_payer();
@@ -76,14 +78,22 @@ impl Miner {
         // Add in user instructions
         final_ixs.extend_from_slice(ixs);
 
-        if let Some((account, amount)) = tip {
+        if let Some((account, mut amount)) = tip {
             send_client = self.jito_client.clone();
+            let new_amount = match difficulty {
+                None => amount,
+                Some(val) => self.script.new_jito_tip(val as u64, amount).unwrap_or(amount),
+            };
             final_ixs.push(transfer(
                 &signer.pubkey(),
                 &Pubkey::from_str(account.as_str()).unwrap(),
-                amount,
+                new_amount,
             ));
-            info!("Jito小费: {} SOL", lamports_to_sol(amount));
+            info!(
+                "Jito小费: {} SOL ({} SOL)",
+                lamports_to_sol(new_amount),
+                lamports_to_sol(amount)
+            );
         }
 
         // Build tx
@@ -99,16 +109,16 @@ impl Miner {
 
         // Submit tx
         let mut attempts = 0;
-        info!("开始提交");
         let mut sigs = vec![];
+        info!("开始提交");
         loop {
             // Sign tx with a new blockhash (after approximately ~45 sec)
             if attempts % 10 == 0 {
                 // Reset the compute unit price
-                if self.dynamic_fee {
-                    let fee = match self.dynamic_fee().await {
+                let real_fee = if self.dynamic_fee {
+                    match self.dynamic_fee().await {
                         Ok(fee) => {
-                            info!("优先费: {}", fee);
+                            //info!("优先费: {}", fee);
                             fee
                         }
                         Err(err) => {
@@ -121,12 +131,21 @@ impl Miner {
                             );
                             fee
                         }
-                    };
+                    }
+                } else {
+                    self.priority_fee.unwrap_or(0)
+                };
 
-                    final_ixs.remove(1);
-                    final_ixs.insert(1, ComputeBudgetInstruction::set_compute_unit_price(fee));
-                    tx = Transaction::new_with_payer(&final_ixs, Some(&fee_payer.pubkey()));
-                }
+                let new_gas = match difficulty {
+                    None => real_fee,
+                    Some(val) => self.script.new_gas(val as u64, real_fee).unwrap_or(real_fee),
+                };
+
+                final_ixs.remove(1);
+                final_ixs.insert(1, ComputeBudgetInstruction::set_compute_unit_price(new_gas));
+                tx = Transaction::new_with_payer(&final_ixs, Some(&fee_payer.pubkey()));
+
+                info!("优先费: {} ({})", new_gas, real_fee);
 
                 // Resign the tx
                 let (hash, _slot) = utils::get_latest_blockhash_with_retries(&client).await?;
@@ -137,96 +156,16 @@ impl Miner {
                 }
             }
 
-            // Send transaction
             match send_client.send_transaction_with_config(&tx, send_cfg).await {
                 Ok(sig) => {
-                    // Skip confirmation
-                    if skip_confirm {
-                        info!("Sent: {}", sig);
+                    sigs.push(sig);
+                    debug!("{:?}", sigs);
+
+                    // Send transaction
+                    if let Some(sig) = self.send_confirm(&client, &mut sigs).await? {
                         return Ok(sig);
                     }
-                    sigs.push(sig);
-                    debug!("signature: {:?}", sig);
-
-                    // Confirm transaction
-                    'confirm: for _ in 0..CONFIRM_RETRIES {
-                        tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
-                        match client.get_signature_statuses(&sigs[..]).await {
-                            Ok(signature_statuses) => {
-                                for (index, status) in signature_statuses.value.iter().enumerate() {
-                                    if let Some(status) = status {
-                                        if let Some(ref err) = status.err {
-                                            match err {
-                                                // Instruction error
-                                                solana_sdk::transaction::TransactionError::InstructionError(_, err) => {
-                                                    match err {
-                                                        // Custom instruction error, parse into OreError
-                                                        solana_program::instruction::InstructionError::Custom(err_code) => {
-                                                            match err_code {
-                                                                e if (OreError::NeedsReset as u32).eq(e) => {
-                                                                    // attempts = 0;
-                                                                    // 这是一个合约错误，hash随机种子并没更新，可以重新发送行的交易
-                                                                    // 是否可以清空sigs，由于链上确认的延迟，不能保证其中某个tx无效
-                                                                    // 所有仅删除引发错误的tx，
-                                                                    sigs.remove(index);
-                                                                    error!( "Needs reset. 重试...");
-                                                                    break 'confirm
-                                                                },
-                                                                _ => {
-                                                                    error!("{err:?}");
-                                                                    return Err(ClientError {
-                                                                        request: None,
-                                                                        kind: ClientErrorKind::Custom(err.to_string()),
-                                                                    });
-                                                                }
-                                                            }
-                                                        },
-
-                                                        // Non custom instruction error, return
-                                                        _ => {
-                                                            error!("{err:?}");
-                                                            return Err(ClientError {
-                                                                request: None,
-                                                                kind: ClientErrorKind::Custom(err.to_string()),
-                                                            });
-                                                        }
-                                                    }
-                                                },
-
-                                                // Non instruction error, return
-                                                _ => {
-                                                    error!("{err:?}");
-                                                    return Err(ClientError {
-                                                        request: None,
-                                                        kind: ClientErrorKind::Custom(err.to_string()),
-                                                    });
-                                                }
-                                            }
-                                        } else if let Some(ref confirmation) =
-                                            status.confirmation_status
-                                        {
-                                            debug!("confirmation: {:?}", confirmation);
-                                            match confirmation {
-                                                TransactionConfirmationStatus::Processed => {}
-                                                TransactionConfirmationStatus::Confirmed
-                                                | TransactionConfirmationStatus::Finalized => {
-                                                    return Ok(sig);
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // Handle confirmation errors
-                            Err(err) => {
-                                error!("{:?}", err.kind());
-                            }
-                        }
-                    }
                 }
-
-                // Handle submit errors
                 Err(err) => {
                     error!("{:?}", err.kind());
                 }
@@ -244,6 +183,90 @@ impl Miner {
                 });
             }
         }
+    }
+
+    pub async fn send_confirm(
+        &self,
+        client: &Arc<RpcClient>,
+        sigs: &mut Vec<Signature>,
+    ) -> ClientResult<Option<Signature>> {
+        'confirm: for _ in 0..CONFIRM_RETRIES {
+            tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
+            match client.get_signature_statuses(&sigs[..]).await {
+                Ok(signature_statuses) => {
+                    for (index, status) in signature_statuses.value.iter().enumerate() {
+                        if let Some(status) = status {
+                            if let Some(ref err) = status.err {
+                                match err {
+                                    // Instruction error
+                                    solana_sdk::transaction::TransactionError::InstructionError(
+                                        _,
+                                        err,
+                                    ) => {
+                                        match err {
+                                            // Custom instruction error, parse into OreError
+                                            solana_program::instruction::InstructionError::Custom(err_code) => {
+                                                match err_code {
+                                                    e if (OreError::NeedsReset as u32).eq(e) => {
+                                                        // attempts = 0;
+                                                        // 这是一个合约错误，hash随机种子并没更新，可以重新发送行的交易
+                                                        // 是否可以清空sigs，由于链上确认的延迟，不能保证其中某个tx无效
+                                                        // 所有仅删除引发错误的tx，
+                                                        sigs.remove(index);
+                                                        error!( "Needs reset. 重试...");
+                                                        break 'confirm
+                                                    },
+                                                    _ => {
+                                                        error!("{err:?}");
+                                                        return Err(ClientError {
+                                                            request: None,
+                                                            kind: ClientErrorKind::Custom(err.to_string()),
+                                                        });
+                                                    }
+                                                }
+                                            },
+
+                                            // Non custom instruction error, return
+                                            _ => {
+                                                error!("{err:?}");
+                                                return Err(ClientError {
+                                                    request: None,
+                                                    kind: ClientErrorKind::Custom(err.to_string()),
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    // Non instruction error, return
+                                    _ => {
+                                        error!("{err:?}");
+                                        return Err(ClientError {
+                                            request: None,
+                                            kind: ClientErrorKind::Custom(err.to_string()),
+                                        });
+                                    }
+                                }
+                            } else if let Some(ref confirmation) = status.confirmation_status {
+                                debug!("confirmation: {:?}", confirmation);
+                                match confirmation {
+                                    TransactionConfirmationStatus::Processed => {}
+                                    TransactionConfirmationStatus::Confirmed
+                                    | TransactionConfirmationStatus::Finalized => {
+                                        return Ok(Some(sigs[index]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Handle confirmation errors
+                Err(err) => {
+                    error!("{:?}", err.kind());
+                }
+            }
+        }
+        Ok(None)
     }
 
     pub async fn check_balance(&self) {

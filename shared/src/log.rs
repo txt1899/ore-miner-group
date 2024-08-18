@@ -13,8 +13,8 @@ pub fn init_log() {
 		.compact(); // 使用紧凑的格式
 
     let env_filter = EnvFilter::from_default_env()
-		//.add_directive("mine_server=debug".parse().unwrap())
-		//.add_directive("mine_client=debug".parse().unwrap())
-		.add_directive("info".parse().unwrap()); // 默认其他依赖只输出 warn 级别以上的日志
+        //.add_directive("mine_server=debug".parse().unwrap())
+        //.add_directive("mine_client=debug".parse().unwrap())
+        .add_directive("info".parse().unwrap()); // 默认其他依赖只输出 warn 级别以上的日志
     tracing_subscriber::fmt().with_env_filter(env_filter).event_format(format).init();
 }

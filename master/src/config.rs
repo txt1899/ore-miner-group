@@ -9,6 +9,8 @@ pub struct MinerConfig {
     pub fee_payer: Option<String>,
     pub buffer_time: u64,
     pub dynamic_fee_url: Option<String>,
+    pub jito_url: Option<String>,
+    pub script: Option<bool>,
     pub port: u16,
 }
 

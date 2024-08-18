@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::lua::LuaScript;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::signature::{read_keypair_file, Keypair};
 
@@ -12,6 +13,7 @@ pub struct Miner {
     pub fee_payer_filepath: Option<String>,
     pub jito_client: Arc<RpcClient>,
     pub buffer_time: u64,
+    pub script: LuaScript,
 }
 
 impl Miner {
@@ -24,6 +26,7 @@ impl Miner {
         fee_payer_filepath: Option<String>,
         jito_client: Arc<RpcClient>,
         buffer_time: u64,
+        script: LuaScript,
     ) -> Self {
         Self {
             rpc_client,
@@ -34,6 +37,7 @@ impl Miner {
             fee_payer_filepath,
             jito_client,
             buffer_time,
+            script
         }
     }
 

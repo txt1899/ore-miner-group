@@ -19,6 +19,6 @@ impl Miner {
         info!("注册矿工...");
         let value = jito.send(messages::WithTip).await.expect("获取jito小费失败");
         let ix = ore_api::instruction::open(signer.pubkey(), signer.pubkey(), fee_payer.pubkey());
-        self.send_and_confirm(&[ix], ComputeBudget::Fixed(400_000), false, value).await.ok();
+        self.send_and_confirm(&[ix], ComputeBudget::Fixed(400_000), false, value, None).await.ok();
     }
 }

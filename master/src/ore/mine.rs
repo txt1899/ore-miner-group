@@ -76,7 +76,7 @@ impl Miner {
             let start_submit = Instant::now();
             // Submit transaction
             if let Ok(tx) = self
-                .send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value)
+                .send_and_confirm(&ixs, ComputeBudget::Fixed(compute_budget), false, value, Some(difficulty))
                 .await
             {
                 // 提交耗时

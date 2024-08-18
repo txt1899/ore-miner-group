@@ -25,30 +25,18 @@ use actix_web::{
 };
 use actix_web_actors::ws;
 use clap::Parser;
+use colored::Colorize;
+use master::{
+    config::load_config_file,
+    lua::LuaScript,
+    ore::{utils::ask_confirm, Miner},
+    websocket::{jito, mediator, scheduler, server, session},
+};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::commitment_config::CommitmentConfig;
 use tokio::time::sleep;
 use tracing::{debug, error, info};
 use tracing_subscriber::fmt::{format, time::ChronoLocal};
-
-use crate::{
-    config::load_config_file,
-    ore::Miner,
-    websocket::{
-        jito,
-        mediator,
-        messages,
-        messages::UpdateMinerAccount,
-        scheduler,
-        server,
-        session,
-    },
-};
-
-mod benchmark;
-mod config;
-pub mod ore;
-mod websocket;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -70,7 +58,7 @@ struct Args {
 }
 
 async fn index() -> impl Responder {
-    NamedFile::open_async("./static/index.html").await.unwrap()
+    NamedFile::open_async("../../../static/index.html").await.unwrap()
 }
 
 async fn mine_route(
@@ -105,10 +93,24 @@ async fn main() -> std::io::Result<()> {
     debug!("{cfg:?}");
 
     let rpc_client = RpcClient::new_with_commitment(cfg.rpc, CommitmentConfig::confirmed());
-    let jito_client =
-        RpcClient::new("https://mainnet.block-engine.jito.wtf/api/v1/transactions".to_string());
     let default_keypair = cfg.keypair_path;
     let fee_payer_path = cfg.fee_payer.unwrap_or(default_keypair.clone());
+
+    let jito_url = cfg
+        .jito_url
+        .unwrap_or("https://mainnet.block-engine.jito.wtf/api/v1/transactions".to_string());
+
+    let jito_client = RpcClient::new(jito_url);
+
+    let script = LuaScript::new();
+
+    if cfg.script.is_some_and(|v| v) {
+        if !ask_confirm("启用动态gas和jito小费，我已经严格测试脚本逻辑. \n是否继续? [Y/n]")
+        {
+            exit(0);
+        }
+        script.load_from_file("./script.lua").unwrap();
+    }
 
     let miner = Arc::new(Miner::new(
         Arc::new(rpc_client),
@@ -119,6 +121,7 @@ async fn main() -> std::io::Result<()> {
         Some(fee_payer_path),
         Arc::new(jito_client),
         cfg.buffer_time,
+        script,
     ));
 
     let app_state = Arc::new(AtomicUsize::new(0));

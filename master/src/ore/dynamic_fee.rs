@@ -3,8 +3,8 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use solana_client::rpc_response::RpcPrioritizationFee;
 use url::Url;
+use crate::ore::Miner;
 
-use crate::Miner;
 
 enum FeeStrategy {
     Helius,
