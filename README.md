@@ -35,6 +35,7 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
 - `dynamic_fee_url`：支持Helius、Alchemy、Quiknode、Triton
 - `jito_url`:
   jito节点地址（可省略默认主网）[Jito URL](https://jito-labs.gitbook.io/mev/searcher-resources/json-rpc-api-reference/url)。
+- script: 自定义lua脚本(默认false)
 - `port`： 服务端口
 
 ```json
@@ -45,6 +46,7 @@ C:\USERS\USER_NAME\DESKTOP\ORE-MINER-GROUP
   "buffer_time": 5,
   "dynamic_fee_url": "https://rpc.com/",
   "jito_url": "https://mainnet.block-engine.jito.wtf/api/v1/transactions",
+  "script": false,
   "port": 8080
 }
 
@@ -95,7 +97,7 @@ function dynamic_gas(difficulty, gas_lamports)
 end
 
 -- dynamic_tip
--- 动态计算jit小费
+-- 动态计算jito小费
 -- difficulty: 当前难度
 -- tip_lamports: 当前jito小费
 -- return: u64

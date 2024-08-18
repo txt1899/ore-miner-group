@@ -73,13 +73,14 @@ impl Miner {
 
         // Set compute unit price
         final_ixs
-            .push(ComputeBudgetInstruction::set_compute_unit_price(self.priority_fee.unwrap_or(0)));
+            .push(ComputeBudgetInstruction::set_compute_unit_price(0));
 
         // Add in user instructions
         final_ixs.extend_from_slice(ixs);
 
         if let Some((account, mut amount)) = tip {
             send_client = self.jito_client.clone();
+            // 脚本计算小费
             let new_amount = match difficulty {
                 None => amount,
                 Some(val) => self.script.new_jito_tip(val as u64, amount).unwrap_or(amount),
@@ -136,6 +137,7 @@ impl Miner {
                     self.priority_fee.unwrap_or(0)
                 };
 
+                // 脚本计算gas
                 let new_gas = match difficulty {
                     None => real_fee,
                     Some(val) => self.script.new_gas(val as u64, real_fee).unwrap_or(real_fee),
