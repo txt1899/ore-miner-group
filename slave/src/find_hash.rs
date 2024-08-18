@@ -59,7 +59,7 @@ pub fn find_hash(cores: usize, task: server::Task) -> client::RemoteMineResult {
                         }
 
                         // Exit if time has elapsed or
-                        if nonce % 100 == 0 {
+                        if nonce % 5 == 0 {
                             if timer.elapsed().as_secs().ge(&(t.cutoff_time)) {
                                 if best_difficulty.ge(&t.min_difficulty) {
                                     break;
