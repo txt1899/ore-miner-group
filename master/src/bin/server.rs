@@ -58,7 +58,7 @@ struct Args {
 }
 
 async fn index() -> impl Responder {
-    NamedFile::open_async("../../../static/index.html").await.unwrap()
+    NamedFile::open_async("./static/index.html").await.unwrap()
 }
 
 async fn mine_route(
