@@ -38,7 +38,7 @@ futures-util = { workspace = true, features = ["sink"] }
 
 clap.workspace = true
 serde_json.workspace = true
-
+drillx_2 = { version = "1.0.0" }
 drillx.workspace = true
 ore-api.workspace = true
 ore-utils.workspace = true

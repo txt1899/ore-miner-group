@@ -1744,6 +1744,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "drillx_2"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af4e3aca4ae86ab0d0050f50b322adab7c0e93904896a5c60bdb33324ea1d36a"
+dependencies = [
+ "equix",
+ "serde",
+ "sha3 0.10.8",
+ "strum",
+]
+
+[[package]]
 name = "dynasm"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2804,6 +2816,7 @@ dependencies = [
  "colored",
  "core_affinity",
  "drillx",
+ "drillx_2",
  "futures-util",
  "lib_shared",
  "log",
@@ -4321,7 +4334,7 @@ dependencies = [
  "bs58 0.5.1",
  "clap 4.5.9",
  "core_affinity",
- "drillx",
+ "drillx_2",
  "futures-util",
  "lib_shared",
  "num_cpus",

@@ -1,4 +1,4 @@
-use drillx::equix;
+use drillx_2::equix;
 use solana_rpc_client::spinner;
 use std::{io, io::BufRead, sync::Arc, time::Instant};
 
@@ -10,6 +10,8 @@ fn main() {
     let progress_bar = Arc::new(spinner::new_progress_bar());
 
     progress_bar.set_message(format!("算力测试：{}核，花费 {} sec...", num_cores, TEST_DURATION));
+
+    let mut hashrate = 0;
 
     let core_ids = core_affinity::get_core_ids().unwrap();
     let handles: Vec<_> = core_ids
@@ -32,9 +34,10 @@ fn main() {
                         let _ = core_affinity::set_for_current(i);
 
                         // Create hash
-                        let _hx =
-                            drillx::hash_with_memory(&mut memory, &challenge, &nonce.to_le_bytes());
+                        let hx =
+                            drillx_2::get_hashes_with_memory(&mut memory, &challenge, &nonce.to_le_bytes());
 
+                        hashrate += hx.len() as u64;
                         // Increment nonce
                         nonce += 1;
 
@@ -45,23 +48,23 @@ fn main() {
                     }
 
                     // Return hash count
-                    nonce - first_nonce
+                    hashrate
                 }
             })
         })
         .collect();
 
     // Join handles and return best nonce
-    let mut total_nonces = 0;
+    let mut total_hashes = 0;
     for h in handles {
         if let Ok(count) = h.join() {
-            total_nonces += count;
+            total_hashes += count;
         }
     }
 
     progress_bar.finish_with_message(format!(
         "算力: {} H/sec",
-        total_nonces.saturating_div(TEST_DURATION as u64),
+        total_hashes.saturating_div(TEST_DURATION as u64),
     ));
 
     let stdin = io::stdin();
