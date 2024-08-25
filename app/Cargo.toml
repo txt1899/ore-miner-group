@@ -4,5 +4,29 @@ version = "2.0.0"
 edition = "2021"
 
 [dependencies]
+solana-cli-config.workspace = true
+solana-client.workspace = true
+solana-program.workspace = true
+solana-rpc-client.workspace = true
+solana-sdk.workspace = true
 
+ore-api.workspace = true
+ore-utils.workspace = true
+
+drillx.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+serde.workspace = true
+serde_json.workspace = true
+
+cached.workspace = true
+bs58.workspace = true
+anyhow.workspace = true
+clap.workspace = true
 shared.workspace = true
+
+reqwest = "*"

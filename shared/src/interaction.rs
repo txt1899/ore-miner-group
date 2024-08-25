@@ -85,6 +85,13 @@ pub struct User {
     pub keys: Vec<String>,
 }
 
+/// if the `app` does not configure `rpc`, these `rpc` will be used
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct LoginResponse {
+    pub rpc: String,
+    pub jito_url: String,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NextEpoch {
     pub key: String,
