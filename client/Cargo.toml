@@ -1,0 +1,28 @@
+[package]
+name = "client"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ore-api.workspace = true
+ore-utils.workspace = true
+
+drillx.workspace = true
+tokio.workspace = true
+futures-util.workspace = true
+
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde_json.workspace = true
+
+cached.workspace = true
+bs58.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+
+shared.workspace = true
+
+tokio-tungstenite = "*"
+num_cpus = "1.16.0"
+core_affinity = "0.8.1"
+

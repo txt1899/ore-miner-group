@@ -1,0 +1,36 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+solana-cli-config.workspace = true
+solana-client.workspace = true
+solana-program.workspace = true
+solana-rpc-client.workspace = true
+solana-sdk.workspace = true
+solana-transaction-status.workspace = true
+solana-account-decoder.workspace = true
+spl-token.workspace = true
+spl-associated-token-account.workspace = true
+
+ore-api.workspace = true
+ore-utils.workspace = true
+drillx.workspace = true
+
+bincode.workspace = true
+tokio.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+awc.workspace = true
+bytes.workspace = true
+
+tokio-tungstenite = "*"
+reqwest = "*"
+
+cached = "0.46.1"
+rand = "0.8.5"
+lazy_static = "1.5.0"
