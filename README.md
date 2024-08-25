@@ -1,12 +1,12 @@
 # MinerGroup
 
+[![Discord](https://img.shields.io/badge/Discord-7289DA?logo=discord&logoColor=white)](https://discord.gg/Bz9qzXhAgJ)
+
 一个开源的ore矿池项目
 
 基本功能已经实现，但未做大量测试，用于正式环境自行测试。
 
 后期优化希望大家共同努力，一起完善。欢迎提交PR。
-
-[Discord](https://discord.gg/jsgwCwbU)  方便推送更新的通知
 
 ### 使用
 
