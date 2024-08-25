@@ -2,7 +2,6 @@ use std::ops::Range;
 
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use solana_sdk::transaction::Transaction;
 
 pub type Challenge = [u8; 32];
 

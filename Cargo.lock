@@ -309,6 +309,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3d1d046238990b9cf5bcde22a3fb3584ee5cf65fb2765f454ed428c7a0063da"
 
 [[package]]
+name = "app"
+version = "2.0.0"
+dependencies = [
+ "shared",
+]
+
+[[package]]
 name = "ark-bn254"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1094,7 +1101,7 @@ checksum = "1462739cb27611015575c0c11df5df7601141071f07518d56fcc1be504cbec97"
 
 [[package]]
 name = "client"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "bs58 0.5.1",
@@ -3765,13 +3772,6 @@ dependencies = [
  "ryu",
  "serde",
  "unsafe-libyaml",
-]
-
-[[package]]
-name = "server"
-version = "0.1.0"
-dependencies = [
- "shared",
 ]
 
 [[package]]
