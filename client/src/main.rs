@@ -8,7 +8,6 @@ use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
         mpsc,
-        mpsc::{Receiver, TryRecvError},
         Arc,
         Mutex,
     },
@@ -22,8 +21,8 @@ use tracing_subscriber::EnvFilter;
 #[derive(Parser, Debug)]
 #[command(about, version)]
 struct Args {
-    #[arg(long, value_name = "SERVER_URL", help = "Subscribe to mining job server URL")]
-    url: String,
+    #[arg(long, value_name = "SERVER_HOST", help = "Subscribe to mining job server Host")]
+    host: String,
 
     #[arg(
         long,
@@ -70,7 +69,9 @@ async fn main() {
     init_log();
 
     let args = Args::parse();
+
     let max_retry = args.reconnect.unwrap_or(10);
+
     let cores = args.cores.unwrap_or(num_cpus::get());
 
     info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
@@ -113,7 +114,7 @@ async fn main() {
     // subscribe jobs
     let clone_shutdown = shutdown.clone();
     tokio::spawn(async move {
-        let url = format!("ws://{}/job/{}", args.url, args.wallet);
+        let url = format!("ws://{}/job/{}", args.host, args.wallet);
         info!("connect: [{}]", url);
         subscribe_jobs(url, clone_shutdown, task_tx, turn_rx, cores as u64, max_retry).await
     });
