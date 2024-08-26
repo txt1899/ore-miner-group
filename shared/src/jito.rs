@@ -160,7 +160,7 @@ impl Display for JitoTips {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "tips(p25 = {}, p50 = {}, p75 = {}, p95 = {}, p99 = {}, ema-p55 = {}) SOL",
+            "tips(p25 = {}, p50 = {}, p75 = {}, p95 = {}, p99 = {}, ema-p50 = {}) SOL",
             lamports_to_sol((self.p25_landed * 1e9f64) as u64),
             lamports_to_sol((self.p50_landed * 1e9f64) as u64),
             lamports_to_sol((self.p75_landed * 1e9f64) as u64),
@@ -238,5 +238,6 @@ pub async fn subscribe_jito_tips() -> JoinHandle<()> {
 
 pub async fn get_jito_tips() -> JitoTips {
     let jito = JITO_TIPS.read().await;
+    info!("{jito:?}");
     jito.clone()
 }
