@@ -1,5 +1,7 @@
 use std::ops::Range;
-
+use actix_web::{HttpResponse, ResponseError};
+use actix_web::http::StatusCode;
+use thiserror::Error;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
@@ -85,6 +87,7 @@ pub struct User {
     pub keys: Vec<String>,
 }
 
+
 /// if the `app` does not configure `rpc`, these `rpc` will be used
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LoginResponse {
@@ -110,7 +113,7 @@ pub struct BlockHash {
 pub enum UserCommand {
     Login(User),
     NextEpoch(NextEpoch),
-    BuildInstruction(BlockHash),
+    BuildTransaction(BlockHash),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -119,4 +122,79 @@ pub struct CommandResponse {
     pub status: String,
     pub data: Option<String>,
     pub error: Option<String>,
+}
+
+// restful api
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RestfulResponse<T> {
+    pub code: i32,
+    pub data: Option<T>,
+    pub message: Option<String>,
+}
+
+impl<T> RestfulResponse<T> {
+    pub fn success(data: T) -> Self {
+        RestfulResponse {
+            code: 200,
+            data: Some(data),
+            message: None,
+        }
+    }
+
+    pub fn error(message: String, code: i32) -> Self {
+        RestfulResponse {
+            code,
+            data: None,
+            message: Some(message),
+        }
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum RestfulError {
+    #[error("user is existed")]
+    UserExisted,
+    #[error("key not found")]
+    KeyNotFound,
+    #[error("solution not found")]
+    SolutionNotFound,
+    #[error("Internal Server Error")]
+    InternalServerError,
+}
+
+impl RestfulError {
+    fn get_code(&self) -> i32 {
+        match self {
+            RestfulError::UserExisted => -10000,
+            RestfulError::KeyNotFound => -10001,
+            RestfulError::SolutionNotFound => -10002,
+            RestfulError::InternalServerError => -30000,
+        }
+    }
+}
+
+
+impl ResponseError for RestfulError {
+    fn status_code(&self) -> StatusCode {
+        StatusCode::OK
+    }
+    fn error_response(&self) -> HttpResponse {
+        let code = self.get_code();
+        let error = self.to_string();
+        match self {
+            RestfulError::UserExisted => {
+                HttpResponse::NotFound().json(RestfulResponse::<()>::error(error, code))
+            }
+            RestfulError::KeyNotFound => {
+                HttpResponse::NotFound().json(RestfulResponse::<()>::error(error, code))
+            }
+            RestfulError::InternalServerError => {
+                HttpResponse::InternalServerError().json(RestfulResponse::<()>::error(error, code))
+            }
+            RestfulError::SolutionNotFound => {
+                HttpResponse::BadRequest().json(RestfulResponse::<()>::error(error, code))
+            }
+        }
+    }
 }

@@ -4,13 +4,6 @@ use std::{
     string::FromUtf8Error,
     sync::Arc,
 };
-
-use awc::{
-    self,
-    ws::{Frame, Message},
-    BoxedSocket,
-    ClientResponse,
-};
 use futures_util::{stream::StreamExt, SinkExt, TryStreamExt};
 use lazy_static::lazy_static;
 use rand::Rng;

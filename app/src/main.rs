@@ -13,7 +13,7 @@ use solana_sdk::{
 };
 use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 use tokio::time;
-use tracing::error;
+use tracing::*;
 use tracing_subscriber::EnvFilter;
 
 mod config;
@@ -147,19 +147,26 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
+                    if cutoff_time == 0 {
+                        warn!("[CMD] this miner is inactive!!!");
+                    }
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
-
-                    self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await;
-                    self.step = MiningStep::Mining;
+                    let challenge_str = bs58::encode(&proof.challenge).into_string();
+                    if let Err(err) = self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await {
+                        error!("[CMD] update new epoch error: {err:#}")
+                    } else {
+                        info!("[CMD] {:#} new epoch: {challenge_str:#} [{cutoff_time:#}]", self.keypair.pubkey());
+                        self.step = MiningStep::Mining;
+                    }
                 }
 
                 MiningStep::Mining => {
-                    if deadline.le(&Instant::now()) {
+                    if deadline.gt(&Instant::now()) {
                         time::sleep(Duration::from_secs(1)).await;
                     } else {
                         self.step = MiningStep::Submit;
@@ -170,12 +177,19 @@ impl Miner {
                     let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
                         .await
                         .expect("fail to get latest blockhash ");
+
                     match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
                         Ok(mut tx) => {
+                            info!("[CMD] {:#} new tx", self.keypair.pubkey());
                             tx.partial_sign(&[&self.keypair], hash);
+
+                            // TODO: submit transaction
                         }
                         Err(err) => {
+                            // usually happens when the miner is inactive.
+                            // cutoff time is zero. we will have no time to waiting.
                             error!("fetch transaction error: {err:#}");
+                            time::sleep(Duration::from_secs(2)).await;
                         }
                     }
                 }
@@ -210,13 +224,14 @@ impl ServerAPI {
         anyhow::bail!("login todo");
     }
 
-    pub async fn next_epoch(&self, key: String, challenge: Challenge, cutoff: u64) {
+    pub async fn next_epoch(&self, key: String, challenge: Challenge, cutoff: u64) -> anyhow::Result<()> {
         let epoch = NextEpoch {
             key,
             challenge,
             cutoff,
         };
         let data = serde_json::to_string(&epoch).unwrap();
+        anyhow::bail!("nex epoch todo");
     }
 
     pub async fn block_hash(&self, key: String, data: [u8; 32]) -> anyhow::Result<Transaction> {
