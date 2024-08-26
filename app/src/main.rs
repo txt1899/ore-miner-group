@@ -14,9 +14,18 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
+use ore_api::error::OreError;
+use solana_client::rpc_config::RpcSendTransactionConfig;
+use solana_sdk::commitment_config::CommitmentLevel;
+use solana_sdk::signature::Signature;
+use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
+use solana_client::{
+    client_error::{Result as ClientResult}
+};
+use solana_client::client_error::{ClientError, ClientErrorKind};
 
 mod config;
 mod restful;
@@ -140,12 +149,19 @@ struct Miner {
     api: Arc<ServerAPI>,
 }
 
+
+const CONFIRM_RETRIES: u64 = 10;
+const CONFIRM_DELAY: u64 = 500;
+const GATEWAY_RETRIES: u64 = 5;
+
 impl Miner {
     async fn run(&mut self) {
         let pubkey = self.keypair.pubkey();
         let mut last_hash_at = 0;
         let mut last_balance = 0;
         let mut deadline = Instant::now();
+        let mut sigs = vec![];
+        let mut attempts = 0;
         loop {
             match self.step {
                 MiningStep::Reset => {
@@ -154,7 +170,10 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
+
+                    sigs = vec![];
+                    attempts = 0;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
@@ -168,16 +187,19 @@ impl Miner {
                     } else {
                         let challenge_str = bs58::encode(&proof.challenge).into_string();
                         info!(
-                            "{} new epoch: {challenge_str} [{cutoff_time}]",
+                            "{} >> challenge: {challenge_str} cutoff: {cutoff_time}",
                             self.keypair.pubkey()
                         );
                         self.step = MiningStep::Mining;
                     }
 
+                    // miner is inactive. we should peek the difficulty.
+                    // if the difficulty is higher than 8.
+                    // we should submit a transaction to activate the miner.
                     if cutoff_time == 0 {
                         let data = vec![self.keypair.pubkey().to_string()];
                         for i in 0..60 {
-                            info!("inactive({}) peeking difficulty({i})", self.keypair.pubkey());
+                            info!("{} >> peeking difficulty({i})", self.keypair.pubkey());
                             if let Ok(resp) = self.api.peek_difficulty(data.clone()).await {
                                 if resp[0].ge(&8) {
                                     self.step = MiningStep::Submit;
@@ -198,28 +220,62 @@ impl Miner {
                 }
 
                 MiningStep::Submit => {
-                    // let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
-                    //     .await
-                    //     .expect("fail to get latest blockhash ");
+                    if attempts > GATEWAY_RETRIES {
+                        error!("{} >> Max retries", self.keypair.pubkey());
+                        self.step = MiningStep::Reset;
+                        continue;
+                    }
 
-                    let hash = Hash::new(&[0_u8; 32]);
+                    let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
+                        .await
+                        .expect("fail to get latest blockhash");
 
                     match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
-                        Ok(mut tx) => {
-                            info!("{:#} new tx received", self.keypair.pubkey());
-                            tx.partial_sign(&[&self.keypair], hash);
+                        Ok(mut resp) => {
+                            info!("{} >> ready for transaction", self.keypair.pubkey());
 
-                            self.step = MiningStep::Waiting;
+                            resp.tx.partial_sign(&[&self.keypair], hash);
 
-                            // TODO: submit transaction
+                            let rpc = if resp.jito {
+                                self.jito_client.clone()
+                            } else {
+                                self.rpc_client.clone()
+                            };
+
+                            let send_cfg = RpcSendTransactionConfig {
+                                skip_preflight: true,
+                                preflight_commitment: Some(CommitmentLevel::Confirmed),
+                                encoding: Some(UiTransactionEncoding::Base64),
+                                max_retries: Some(0),
+                                min_context_slot: None,
+                            };
+
+                            match rpc.send_transaction_with_config(&resp.tx, send_cfg).await {
+                                Ok(sig) => {
+                                    sigs.push(sig);
+                                    // Send transaction
+                                    match self.send_confirm(&self.rpc_client, &mut sigs).await {
+                                        Ok(data) => if let Some(sig) = data {
+                                            info!("{} {} {}", self.keypair.pubkey(),"OK", sig);
+                                            self.step = MiningStep::Reset;
+                                            continue;
+                                        }
+                                        Err(err) => {
+                                            error!("submit: {:?}", err.kind());
+                                        }
+                                    }
+                                }
+                                Err(err) => {
+                                    error!("submit: {:?}", err.kind());
+                                }
+                            }
                         }
                         Err(err) => {
-                            // usually happens when the miner is inactive.
-                            // cutoff time is zero. we will have no time to waiting.
                             error!("fetch transaction error: {err:#}");
-                            time::sleep(Duration::from_secs(2)).await;
                         }
                     }
+
+                    attempts += 1;
                 }
 
                 MiningStep::Waiting => {
@@ -227,6 +283,118 @@ impl Miner {
                 }
             }
         }
+    }
+
+    async fn do_submit(&self, sigs: &mut Vec<Signature>, pubkey: String, hash: [u8; 32]) -> anyhow::Result<Option<Signature>> {
+        let mut resp = self.api.block_hash(pubkey, hash.to_bytes()).await?;
+
+        info!("{} >> ready for transaction", self.keypair.pubkey());
+
+        resp.tx.partial_sign(&[&self.keypair], hash);
+
+        let rpc = if resp.jito {
+            self.jito_client.clone()
+        } else {
+            self.rpc_client.clone()
+        };
+
+        let send_cfg = RpcSendTransactionConfig {
+            skip_preflight: true,
+            preflight_commitment: Some(CommitmentLevel::Confirmed),
+            encoding: Some(UiTransactionEncoding::Base64),
+            max_retries: Some(0),
+            min_context_slot: None,
+        };
+
+        let sig = rpc.send_transaction_with_config(&resp.tx, send_cfg).await?;
+
+        sigs.push(sig);
+
+        // Send transaction
+        if let Some(sig) = self.send_confirm(&self.rpc_client, sigs).await? {
+            return Ok(Some(sig));
+        }
+        Ok(None)
+    }
+
+    async fn send_confirm(
+        &self,
+        client: &Arc<RpcClient>,
+        sigs: &mut Vec<Signature>,
+    ) -> ClientResult<Option<Signature>> {
+        'confirm: for _ in 0..CONFIRM_RETRIES {
+            tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
+            match client.get_signature_statuses(&sigs[..]).await {
+                Ok(signature_statuses) => {
+                    for (index, status) in signature_statuses.value.iter().enumerate() {
+                        if let Some(status) = status {
+                            if let Some(ref err) = status.err {
+                                match err {
+                                    // Instruction error
+                                    solana_sdk::transaction::TransactionError::InstructionError(
+                                        _,
+                                        err,
+                                    ) => {
+                                        match err {
+                                            // Custom instruction error, parse into OreError
+                                            solana_program::instruction::InstructionError::Custom(err_code) => {
+                                                match err_code {
+                                                    e if (OreError::NeedsReset as u32).eq(e) => {
+                                                        sigs.remove(index);
+                                                        error!( "Needs reset. retry...");
+                                                        break 'confirm;
+                                                    }
+                                                    _ => {
+                                                        error!("{err:?}");
+                                                        return Err(ClientError {
+                                                            request: None,
+                                                            kind: ClientErrorKind::Custom(err.to_string()),
+                                                        });
+                                                    }
+                                                }
+                                            }
+
+                                            // Non custom instruction error, return
+                                            _ => {
+                                                error!("{err:?}");
+                                                return Err(ClientError {
+                                                    request: None,
+                                                    kind: ClientErrorKind::Custom(err.to_string()),
+                                                });
+                                            }
+                                        }
+                                    }
+
+                                    // Non instruction error, return
+                                    _ => {
+                                        error!("{err:?}");
+                                        return Err(ClientError {
+                                            request: None,
+                                            kind: ClientErrorKind::Custom(err.to_string()),
+                                        });
+                                    }
+                                }
+                            } else if let Some(ref confirmation) = status.confirmation_status {
+                                debug!("confirmation: {:?}", confirmation);
+                                match confirmation {
+                                    TransactionConfirmationStatus::Processed => {}
+                                    TransactionConfirmationStatus::Confirmed
+                                    | TransactionConfirmationStatus::Finalized => {
+                                        return Ok(Some(sigs[index]));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Handle confirmation errors
+                Err(err) => {
+                    error!("{:?}", err.kind());
+                }
+            }
+        }
+        Ok(None)
     }
 
     async fn get_cutoff(&self, proof: Proof, buffer_time: u64) -> u64 {

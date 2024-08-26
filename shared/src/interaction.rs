@@ -2,6 +2,7 @@ use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use std::ops::Range;
+use solana_sdk::transaction::Transaction;
 use thiserror::Error;
 
 pub type Challenge = [u8; 32];
@@ -41,7 +42,7 @@ macro_rules! impl_bytes_conversion {
     };
 }
 
-/// client -> agent
+/// client -> server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerResponse {
     MiningResult(SubmitMiningResult),
@@ -49,7 +50,7 @@ pub enum ServerResponse {
 
 impl_bytes_conversion!(ServerResponse);
 
-/// agent -> client
+/// server -> client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientResponse {
     GetWork(GetWork),
@@ -104,6 +105,12 @@ pub struct NextEpoch {
 pub struct BlockHash {
     pub key: String,
     pub data: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct BlockHashResponse {
+    pub tx: Transaction,
+    pub jito: bool,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

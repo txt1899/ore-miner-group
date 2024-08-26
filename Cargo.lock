@@ -406,6 +406,7 @@ dependencies = [
  "solana-program",
  "solana-rpc-client",
  "solana-sdk",
+ "solana-transaction-status",
  "tokio",
  "tracing",
  "tracing-subscriber",

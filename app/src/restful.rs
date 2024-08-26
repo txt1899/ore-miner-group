@@ -1,6 +1,6 @@
 use reqwest::{Method, Url};
 use serde::{de, ser};
-use shared::interaction::{BlockHash, Challenge, LoginResponse, NextEpoch, RestfulResponse, User};
+use shared::interaction::{BlockHash, BlockHashResponse, Challenge, LoginResponse, NextEpoch, RestfulResponse, User};
 use solana_sdk::transaction::Transaction;
 
 pub struct ServerAPI {
@@ -42,14 +42,14 @@ impl ServerAPI {
     }
 
     /// get transaction by block hash
-    pub async fn block_hash(&self, key: String, data: [u8; 32]) -> anyhow::Result<Transaction> {
+    pub async fn block_hash(&self, key: String, data: [u8; 32]) -> anyhow::Result<BlockHashResponse> {
         let block = BlockHash {
             key,
             data,
         };
 
         let resp =
-            self.request::<_, Transaction>("/api/v1/transaction", Method::POST, block).await?;
+            self.request::<_, BlockHashResponse>("/api/v1/transaction", Method::POST, block).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
