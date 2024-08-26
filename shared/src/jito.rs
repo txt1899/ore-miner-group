@@ -1,6 +1,3 @@
-use std::{
-    fmt::{Display, Formatter},
-};
 use futures_util::{stream::StreamExt, SinkExt};
 use lazy_static::lazy_static;
 use rand::Rng;
@@ -9,6 +6,7 @@ use serde_json::{json, Value};
 use solana_program::{native_token::lamports_to_sol, pubkey};
 use solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::Transaction};
 use solana_transaction_status::{Encodable, EncodedTransaction, UiTransactionEncoding};
+use std::fmt::{Display, Formatter};
 use tokio::{sync::RwLock, task::JoinHandle, time};
 use tracing::*;
 

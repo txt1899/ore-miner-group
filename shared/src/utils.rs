@@ -18,10 +18,7 @@ use solana_client::{
     nonblocking::rpc_client::RpcClient,
 };
 use solana_program::{pubkey::Pubkey, sysvar};
-use solana_sdk::{
-    clock::Clock,
-    hash::Hash
-};
+use solana_sdk::{clock::Clock, hash::Hash};
 use spl_associated_token_account::get_associated_token_address;
 use tokio::time::sleep;
 

@@ -1,4 +1,4 @@
-use crate::config::load_config_file;
+use crate::{config::load_config_file, restful::ServerAPI};
 use cached::instant::Instant;
 use ore_api::state::Proof;
 use shared::{
@@ -17,6 +17,7 @@ use tracing::*;
 use tracing_subscriber::EnvFilter;
 
 mod config;
+mod restful;
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
@@ -68,9 +69,11 @@ fn parse_keypair() -> anyhow::Result<Vec<Keypair>> {
 async fn main() -> anyhow::Result<()> {
     init_log();
 
-    let api = Arc::new(ServerAPI {});
-
     let mut cfg = load_config_file("./config.json").unwrap();
+
+    let api = Arc::new(ServerAPI {
+        url: "".to_string(),
+    }); // TODO: use real api
 
     let keypairs = parse_keypair()?;
 
@@ -100,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
                 step: MiningStep::Reset,
                 rpc_client: rpc_client.clone(),
                 jito_client: jito_client.clone(),
-                api: Arc::new(ServerAPI {}),
+                api: api.clone(),
             }
         })
         .collect();
@@ -147,7 +150,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
@@ -157,10 +160,15 @@ impl Miner {
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
                     let challenge_str = bs58::encode(&proof.challenge).into_string();
-                    if let Err(err) = self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await {
+                    if let Err(err) =
+                        self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await
+                    {
                         error!("[CMD] update new epoch error: {err:#}")
                     } else {
-                        info!("[CMD] {:#} new epoch: {challenge_str:#} [{cutoff_time:#}]", self.keypair.pubkey());
+                        info!(
+                            "[CMD] {:#} new epoch: {challenge_str:#} [{cutoff_time:#}]",
+                            self.keypair.pubkey()
+                        );
                         self.step = MiningStep::Mining;
                     }
                 }
@@ -207,40 +215,5 @@ impl Miner {
             .saturating_sub(buffer_time as i64)
             .saturating_sub(clock.unix_timestamp)
             .max(0) as u64
-    }
-}
-
-struct ServerAPI {}
-
-impl ServerAPI {
-    pub async fn login(&self, name: String, keys: Vec<String>) -> anyhow::Result<(String, String)> {
-        let user = User {
-            name,
-            keys,
-        };
-        let data = serde_json::to_string(&user).unwrap();
-
-        // TODO
-        anyhow::bail!("login todo");
-    }
-
-    pub async fn next_epoch(&self, key: String, challenge: Challenge, cutoff: u64) -> anyhow::Result<()> {
-        let epoch = NextEpoch {
-            key,
-            challenge,
-            cutoff,
-        };
-        let data = serde_json::to_string(&epoch).unwrap();
-        anyhow::bail!("nex epoch todo");
-    }
-
-    pub async fn block_hash(&self, key: String, data: [u8; 32]) -> anyhow::Result<Transaction> {
-        let block = BlockHash {
-            key,
-            data,
-        };
-        let data = serde_json::to_string(&block).unwrap();
-        // TODO
-        anyhow::bail!("block hash todo");
     }
 }

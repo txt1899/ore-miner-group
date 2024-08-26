@@ -1,9 +1,8 @@
-use std::ops::Range;
-use actix_web::{HttpResponse, ResponseError};
-use actix_web::http::StatusCode;
-use thiserror::Error;
+use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use std::ops::Range;
+use thiserror::Error;
 
 pub type Challenge = [u8; 32];
 
@@ -86,7 +85,6 @@ pub struct User {
     pub name: String,
     pub keys: Vec<String>,
 }
-
 
 /// if the `app` does not configure `rpc`, these `rpc` will be used
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -174,11 +172,11 @@ impl RestfulError {
     }
 }
 
-
 impl ResponseError for RestfulError {
     fn status_code(&self) -> StatusCode {
         StatusCode::OK
     }
+
     fn error_response(&self) -> HttpResponse {
         let code = self.get_code();
         let error = self.to_string();
