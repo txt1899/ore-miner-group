@@ -3914,6 +3914,7 @@ dependencies = [
  "bincode",
  "bytes",
  "cached",
+ "chrono",
  "drillx",
  "futures-util",
  "lazy_static",
