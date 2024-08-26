@@ -165,7 +165,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
 
                     sigs = vec![];
                     attempts = 0;
@@ -178,14 +178,14 @@ impl Miner {
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
 
                     if let Err(err) =
-                        self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await
+                        self.api.next_epoch(pubkey.clone(), proof.challenge, cutoff_time).await
                     {
                         error!("update new epoch error: {err:#}")
                     } else {
                         let challenge_str = bs58::encode(&proof.challenge).into_string();
                         info!(
                             "{} >> challenge: {challenge_str} cutoff: {cutoff_time}",
-                            self.keypair.pubkey()
+                            pubkey
                         );
                         self.step = MiningStep::Mining;
                     }
@@ -194,9 +194,9 @@ impl Miner {
                     // if the difficulty is higher than 8.
                     // we should submit a transaction to activate the miner.
                     if cutoff_time == 0 {
-                        let data = vec![self.keypair.pubkey().to_string()];
+                        let data = vec![pubkey.clone()];
                         for i in 0..60 {
-                            info!("{} >> peeking difficulty({i})", self.keypair.pubkey());
+                            info!("{} >> peeking difficulty({i})", pubkey);
                             if let Ok(resp) = self.api.peek_difficulty(data.clone()).await {
                                 if resp[0].ge(&8) {
                                     self.step = MiningStep::Submit;
@@ -218,7 +218,7 @@ impl Miner {
 
                 MiningStep::Submit => {
                     if attempts > GATEWAY_RETRIES {
-                        error!("{} >> Max retries", self.keypair.pubkey());
+                        error!("{} >> Max retries", pubkey);
                         self.step = MiningStep::Reset;
                         continue;
                     }
