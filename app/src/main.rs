@@ -146,7 +146,6 @@ impl Miner {
         let mut last_hash_at = 0;
         let mut last_balance = 0;
         let mut deadline = Instant::now();
-        let mut interval = 1;
         loop {
             match self.step {
                 MiningStep::Reset => {
@@ -155,7 +154,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
@@ -176,8 +175,18 @@ impl Miner {
                     }
 
                     if cutoff_time == 0 {
-                        warn!("[CMD] this miner is inactive. sleep 15s");
-                        time::sleep(Duration::from_secs(1)).await;
+                        let data = vec![self.keypair.pubkey().to_string()];
+                        for i in 0..60 {
+                            info!("[CMD] inactive({}) peeking difficulty({i})", self.keypair.pubkey());
+                            if let Ok(resp) = self.api.peek_difficulty(data.clone()).await {
+                                debug!("peek result: {resp:?}");
+                                if resp[0].ge(&8) {
+                                    self.step = MiningStep::Submit;
+                                    break;
+                                }
+                            }
+                            time::sleep(Duration::from_secs(5)).await;
+                        }
                     }
                 }
 
