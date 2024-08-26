@@ -1,6 +1,5 @@
 use reqwest::{Method, Url};
 use serde::{de, ser};
-use serde_json::{json, Value};
 use shared::interaction::{BlockHash, Challenge, LoginResponse, NextEpoch, RestfulResponse, User};
 use solana_sdk::transaction::Transaction;
 
@@ -16,7 +15,7 @@ impl ServerAPI {
             keys,
         };
 
-        let resp = self.request::<_, LoginResponse>("/v1/api/login", Method::POST, user).await?;
+        let resp = self.request::<_, LoginResponse>("/api/v1/login", Method::POST, user).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
@@ -38,7 +37,7 @@ impl ServerAPI {
             challenge,
             cutoff,
         };
-        let resp = self.request::<_, ()>("/v1/api/epoch", Method::POST, epoch).await?;
+        let resp = self.request::<_, ()>("/api/v1/epoch", Method::POST, epoch).await?;
 
         if resp.code == 200 {
             return Ok(());
@@ -54,7 +53,7 @@ impl ServerAPI {
             data,
         };
 
-        let resp = self.request::<_, Transaction>("/v1/api/transaction", Method::POST, block).await?;
+        let resp = self.request::<_, Transaction>("/api/v1/transaction", Method::POST, block).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
@@ -74,6 +73,7 @@ impl ServerAPI {
     where
         T: ser::Serialize,
         R: de::DeserializeOwned, {
+
         let mut url = Url::parse(&self.url)?;
         url = url.join(&endpoint)?;
 

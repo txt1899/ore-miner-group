@@ -12,6 +12,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
+use clap::Parser;
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
@@ -21,8 +22,8 @@ mod restful;
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("agent=trace".parse().unwrap())
-        .add_directive("debug".parse().unwrap());
+        .add_directive("app=trace".parse().unwrap())
+        .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
 
@@ -71,9 +72,11 @@ async fn main() -> anyhow::Result<()> {
 
     let mut cfg = load_config_file("./config.json").unwrap();
 
+    debug!("config: {cfg:#?}");
+
     let api = Arc::new(ServerAPI {
-        url: "".to_string(),
-    }); // TODO: use real api
+        url: cfg.server_host,
+    });
 
     let keypairs = parse_keypair()?;
 
@@ -150,7 +153,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;

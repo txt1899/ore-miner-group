@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppConfig {
+    pub server_host: String,
     pub rpc: Option<String>,
     pub jito_url: Option<String>,
 }
