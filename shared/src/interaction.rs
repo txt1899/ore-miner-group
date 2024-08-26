@@ -59,7 +59,7 @@ impl_bytes_conversion!(ClientResponse);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitMiningResult {
-    pub id: usize,
+    pub job_id: usize,
     pub difficulty: u32,
     pub challenge: Challenge,
     pub workload: u64,
@@ -70,7 +70,7 @@ pub struct SubmitMiningResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetWork {
-    pub id: usize,
+    pub job_id: usize,
     pub challenge: Challenge,
     pub job: Range<u64>,
     pub difficulty: u32,
@@ -114,13 +114,6 @@ pub enum UserCommand {
     BuildTransaction(BlockHash),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct CommandResponse {
-    pub code: i32,
-    pub status: String,
-    pub data: Option<String>,
-    pub error: Option<String>,
-}
 
 // restful api
 

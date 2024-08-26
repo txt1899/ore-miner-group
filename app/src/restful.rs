@@ -14,14 +14,11 @@ impl ServerAPI {
             name,
             keys,
         };
-
         let resp = self.request::<_, LoginResponse>("/api/v1/login", Method::POST, user).await?;
-
         if resp.code == 200 {
             let data = resp.data.unwrap();
             return Ok((data.rpc, data.jito_url));
         }
-
         anyhow::bail!(resp.message.unwrap());
     }
 
@@ -38,11 +35,9 @@ impl ServerAPI {
             cutoff,
         };
         let resp = self.request::<_, ()>("/api/v1/epoch", Method::POST, epoch).await?;
-
         if resp.code == 200 {
             return Ok(());
         }
-
         anyhow::bail!(resp.message.unwrap());
     }
 
@@ -72,8 +67,8 @@ impl ServerAPI {
     ) -> anyhow::Result<RestfulResponse<R>>
     where
         T: ser::Serialize,
-        R: de::DeserializeOwned, {
-
+        R: de::DeserializeOwned,
+    {
         let mut url = Url::parse(&self.url)?;
         url = url.join(&endpoint)?;
 

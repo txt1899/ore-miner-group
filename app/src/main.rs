@@ -13,6 +13,7 @@ use solana_sdk::{
 };
 use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 use clap::Parser;
+use solana_program::hash::Hash;
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
@@ -72,10 +73,10 @@ async fn main() -> anyhow::Result<()> {
 
     let mut cfg = load_config_file("./config.json").unwrap();
 
-    debug!("config: {cfg:#?}");
+    debug!("config: {cfg:?}");
 
     let api = Arc::new(ServerAPI {
-        url: cfg.server_host,
+        url: format!("http://{}", cfg.server_host),
     });
 
     let keypairs = parse_keypair()?;
@@ -145,6 +146,7 @@ impl Miner {
         let mut last_hash_at = 0;
         let mut last_balance = 0;
         let mut deadline = Instant::now();
+        let mut interval = 1;
         loop {
             match self.step {
                 MiningStep::Reset => {
@@ -157,22 +159,25 @@ impl Miner {
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
-                    if cutoff_time == 0 {
-                        warn!("[CMD] this miner is inactive!!!");
-                    }
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
-                    let challenge_str = bs58::encode(&proof.challenge).into_string();
+
                     if let Err(err) =
                         self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await
                     {
                         error!("[CMD] update new epoch error: {err:#}")
                     } else {
+                        let challenge_str = bs58::encode(&proof.challenge).into_string();
                         info!(
-                            "[CMD] {:#} new epoch: {challenge_str:#} [{cutoff_time:#}]",
+                            "[CMD] {} new epoch: {challenge_str} [{cutoff_time}]",
                             self.keypair.pubkey()
                         );
                         self.step = MiningStep::Mining;
+                    }
+
+                    if cutoff_time == 0 {
+                        warn!("[CMD] this miner is inactive. sleep 15s");
+                        time::sleep(Duration::from_secs(1)).await;
                     }
                 }
 
@@ -185,9 +190,11 @@ impl Miner {
                 }
 
                 MiningStep::Submit => {
-                    let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
-                        .await
-                        .expect("fail to get latest blockhash ");
+                    // let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
+                    //     .await
+                    //     .expect("fail to get latest blockhash ");
+
+                    let hash = Hash::new(&[0_u8;32]);
 
                     match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
                         Ok(mut tx) => {
