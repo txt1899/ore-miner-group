@@ -60,8 +60,7 @@ impl ServerAPI {
     }
 
     pub async fn peek_difficulty(&self, keys: Vec<String>) -> anyhow::Result<Vec<u32>> {
-        let resp =
-            self.request::<_, Vec<u32>>("/api/v1/difficulty", Method::POST, keys).await?;
+        let resp = self.request::<_, Vec<u32>>("/api/v1/difficulty", Method::POST, keys).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();

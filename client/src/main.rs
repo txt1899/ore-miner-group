@@ -1,8 +1,3 @@
-use clap::{command, Parser, Subcommand};
-use core_affinity::CoreId;
-use drillx::{equix, Hash};
-use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
-use shared::interaction::{ClientResponse, GetWork, ServerResponse, SubmitMiningResult};
 use std::{
     collections::HashMap,
     ops::Range,
@@ -14,10 +9,22 @@ use std::{
     },
     time::{Duration, Instant},
 };
+
+use clap::{command, Parser, Subcommand};
+use core_affinity::CoreId;
+use drillx::{equix, Hash};
+use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use tokio::{signal, task::JoinHandle, time};
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
+
+use shared::interaction::{ClientResponse, GetWork, ServerResponse, SubmitMiningResult};
+
+use crate::{manager::CoreManager, stream::subscribe_jobs};
+
+mod manager;
+mod stream;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -50,11 +57,6 @@ pub struct UnitTask {
     challenge: [u8; 32],
     data: Range<u64>,
     stop_time: Instant,
-}
-
-pub struct CoreManager {
-    sender: mpsc::Sender<SubmitMiningResult>,
-    receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
 fn init_log() {
@@ -157,241 +159,4 @@ async fn main() {
             }
         }
     }
-}
-
-impl CoreManager {
-    fn run(&self, id: usize) -> std::thread::JoinHandle<()> {
-        debug!("unit core: {:?}", id);
-
-        let receiver = self.receiver.clone();
-        let sender = self.sender.clone();
-
-        std::thread::spawn(move || {
-            // bound thread to core
-            let _ = core_affinity::set_for_current(CoreId {
-                id,
-            });
-            let mut memory = equix::SolverMemory::new();
-            loop {
-                // receive task form channel
-                let data = {
-                    let lock = receiver.lock().unwrap();
-                    lock.recv()
-                };
-
-                if let Err(err) = data {
-                    debug!("core: {:?}, error: {}", id, err);
-                    return;
-                }
-
-                if let Ok(task) = data {
-                    let UnitTask {
-                        job_id,
-                        difficulty,
-                        challenge,
-                        data,
-                        stop_time,
-                    } = task;
-
-                    if id == 0 {
-                        debug!("core: {id}, task rage: {data:?}");
-                    }
-
-                    let mut nonce = data.start;
-                    let end = data.end;
-                    let mut hashes = 0;
-
-                    let mut best_nonce = nonce;
-                    let mut best_difficulty = 0;
-                    let mut best_hash = Hash::default();
-
-                    loop {
-                        for hx in drillx::hashes_with_memory(
-                            &mut memory,
-                            &challenge,
-                            &nonce.to_le_bytes(),
-                        ) {
-                            let diff = hx.difficulty();
-                            if diff.gt(&best_difficulty) {
-                                best_nonce = nonce;
-                                best_difficulty = diff;
-                                best_hash = hx;
-                            }
-                            hashes += 1;
-                        }
-
-                        if stop_time.le(&Instant::now()) {
-                            break;
-                        }
-
-                        if nonce.ge(&end) {
-                            break;
-                        }
-                        nonce += 1;
-                    }
-
-                    trace!("core: {id} difficulty: {best_difficulty}");
-
-                    // if server diff is higher than mine, ignore
-                    sender
-                        .send(if best_difficulty > difficulty {
-                            SubmitMiningResult {
-                                job_id,
-                                difficulty: best_difficulty,
-                                challenge,
-                                workload: hashes,
-                                nonce: best_nonce,
-                                digest: best_hash.d,
-                                hash: best_hash.h,
-                            }
-                        } else {
-                            SubmitMiningResult {
-                                job_id,
-                                workload: hashes,
-                                ..Default::default()
-                            }
-                        })
-                        .ok();
-                }
-            }
-        })
-    }
-}
-
-async fn subscribe_jobs(
-    url: String,
-    shutdown: Arc<AtomicBool>,
-    task_tx: mpsc::Sender<UnitTask>,
-    mut turn_rx: tokio::sync::mpsc::Receiver<SubmitMiningResult>,
-    count: u64,
-    max_retry: u32,
-) {
-    let mut attempts = 0;
-
-    let watch_shutdown = || {
-        async {
-            time::sleep(Duration::from_secs(1)).await;
-            shutdown.load(Ordering::SeqCst)
-        }
-    };
-
-    'done: loop {
-        attempts += 1;
-
-        if shutdown.load(Ordering::SeqCst) {
-            warn!("shutdown flag is set. exiting...");
-            break 'done;
-        }
-
-        // connect to server
-        let stream = match tokio_tungstenite::connect_async(&url).await {
-            Ok((ws_stream, _)) => ws_stream,
-            Err(err) => {
-                error!("fail to connect to sever: {err:#}");
-                if attempts >= max_retry {
-                    break;
-                }
-                info!("retry...({attempts}/{max_retry})");
-
-                tokio::select! {
-                    _= watch_shutdown() => {
-                        if shutdown.load(Ordering::SeqCst) {
-                            warn!("shutdown flag is set. exiting...");
-                            break 'done;
-                        }
-                    }
-                    _= tokio::time::sleep(Duration::from_secs(10)) => {}
-                }
-                continue;
-            }
-        };
-
-        // connection successful reset attempt
-        attempts = 0;
-
-        let (mut write, mut read) = stream.split();
-        loop {
-            tokio::select! {
-                _= watch_shutdown() => {
-                    if shutdown.load(Ordering::SeqCst) {
-                        warn!("shutdown flag is set. exiting...");
-                        break 'done;
-                    }
-                }
-                // the best result will be sent to the server
-                res = turn_rx.recv() => {
-                    debug!("submit result: {res:?}");
-                    match res {
-                        Some(result) => {
-                            let data = ServerResponse::MiningResult(result);
-                            write.send(Message::Binary(data.into())).await.ok();
-                        }
-                        None => {
-                            error!("turn rx closed");
-                        }
-                    }
-                },
-                // new job from server
-                Some(res) = read.next() => {
-                    match res {
-                        Ok(message) => {
-                            match message {
-                                Message::Binary(bin) => {
-                                    let data = ClientResponse::from(bin);
-                                    match data {
-                                        ClientResponse::GetWork(work) => {
-                                            debug!("new work received: {work:?}");
-
-                                            let GetWork {
-                                                job_id,
-                                                challenge,
-                                                job,
-                                                difficulty,
-                                                cutoff, // TODO need a timestamp
-                                                work_time
-                                            } = work;
-
-                                            info!(
-                                                "challenge: `{}` current best difficulty: {difficulty}",
-                                                bs58::encode(challenge).into_string()
-                                            );
-
-                                            // each core thread will push a certain number of nonce
-                                            let limit = (job.end - job.start).saturating_div(count);
-                                            for i in 0..count {
-                                                if let Err(err) = task_tx.send(UnitTask {
-                                                    job_id,
-                                                    difficulty,
-                                                    challenge,
-                                                    data: job.start+ i * limit .. job.start + (i + 1) * limit,
-                                                    stop_time: Instant::now() + Duration::from_secs(work_time),
-                                                }) {
-                                                    error!("fail to send unit task: {err:#}");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Message::Ping(ping) => {
-                                    if let Err(err) = write.send(Message::Pong(ping)).await {
-                                        error!("fail to send pong: {err:#}");
-                                        break;
-                                    }
-                                }
-                                _ => {}
-                            }
-                        }
-                        Err(err) => {
-                            error!("fail to read from sever: {err:#}");
-                            break;
-                        }
-                    }
-                }
-            }
-        }
-
-        error!("server disconnected, retries in 10 seconds");
-        tokio::time::sleep(Duration::from_secs(10)).await;
-    }
-    trace!("stream done");
 }

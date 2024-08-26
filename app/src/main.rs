@@ -154,7 +154,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
@@ -164,11 +164,11 @@ impl Miner {
                     if let Err(err) =
                         self.api.next_epoch(pubkey.to_string(), proof.challenge, cutoff_time).await
                     {
-                        error!("[CMD] update new epoch error: {err:#}")
+                        error!("update new epoch error: {err:#}")
                     } else {
                         let challenge_str = bs58::encode(&proof.challenge).into_string();
                         info!(
-                            "[CMD] {} new epoch: {challenge_str} [{cutoff_time}]",
+                            "{} new epoch: {challenge_str} [{cutoff_time}]",
                             self.keypair.pubkey()
                         );
                         self.step = MiningStep::Mining;
@@ -177,9 +177,8 @@ impl Miner {
                     if cutoff_time == 0 {
                         let data = vec![self.keypair.pubkey().to_string()];
                         for i in 0..60 {
-                            info!("[CMD] inactive({}) peeking difficulty({i})", self.keypair.pubkey());
+                            info!("inactive({}) peeking difficulty({i})", self.keypair.pubkey());
                             if let Ok(resp) = self.api.peek_difficulty(data.clone()).await {
-                                debug!("peek result: {resp:?}");
                                 if resp[0].ge(&8) {
                                     self.step = MiningStep::Submit;
                                     break;
@@ -207,7 +206,7 @@ impl Miner {
 
                     match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
                         Ok(mut tx) => {
-                            info!("[CMD] {:#} new tx received", self.keypair.pubkey());
+                            info!("{:#} new tx received", self.keypair.pubkey());
                             tx.partial_sign(&[&self.keypair], hash);
 
                             self.step = MiningStep::Waiting;
