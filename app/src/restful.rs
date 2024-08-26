@@ -38,7 +38,7 @@ impl ServerAPI {
             challenge,
             cutoff,
         };
-        let resp = self.request::<_, ()>("/v1/api/login", Method::POST, epoch).await?;
+        let resp = self.request::<_, ()>("/v1/api/epoch", Method::POST, epoch).await?;
 
         if resp.code == 200 {
             return Ok(());
@@ -54,7 +54,7 @@ impl ServerAPI {
             data,
         };
 
-        let resp = self.request::<_, Transaction>("/v1/api/login", Method::POST, block).await?;
+        let resp = self.request::<_, Transaction>("/v1/api/transaction", Method::POST, block).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
