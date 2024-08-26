@@ -7,7 +7,10 @@ use solana_program::{native_token::lamports_to_sol, pubkey};
 use solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::Transaction};
 use solana_transaction_status::{Encodable, EncodedTransaction, UiTransactionEncoding};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 use tokio::{sync::RwLock, task::JoinHandle, time};
+use tokio::sync::Mutex;
+use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 
 lazy_static! {
@@ -44,7 +47,8 @@ pub struct JitoResponse<T> {
 
 async fn make_jito_request<T>(method: &'static str, params: Value) -> anyhow::Result<T>
 where
-    T: de::DeserializeOwned, {
+    T: de::DeserializeOwned,
+{
     let response = reqwest::Client::new()
         .post("https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles")
         .header("Content-Type", "application/json")
@@ -178,34 +182,50 @@ pub async fn subscribe_jito_tips() -> JoinHandle<()> {
                     }
                 };
 
-                let (_, read) = stream.split();
+                let (write, read) = stream.split();
+
+                let write = Arc::new(Mutex::new(write));
 
                 read.for_each(|message| {
                     async {
                         let data = match message {
-                            Ok(data) => data.into_data(),
+                            Ok(msg) => {
+                                match msg {
+                                    Message::Text(data) => {
+                                        match serde_json::from_str::<Vec<JitoTips>>(&data) {
+                                            Ok(t) => Some(t),
+                                            Err(err) => {
+                                                error!("fail to parse jito tips: {err:#}");
+                                                return;
+                                            }
+                                        }
+                                    }
+                                    Message::Ping(data) => {
+                                        let mut guard = write.lock().await;
+                                        let _ = guard.send(Message::Ping(data)).await;
+                                        None
+                                    }
+                                    _ => {
+                                        None
+                                    }
+                                }
+                            }
                             Err(err) => {
                                 error!("fail to read jito tips message: {err:#}");
                                 return;
                             }
                         };
 
-                        let data = match serde_json::from_slice::<Vec<JitoTips>>(&data) {
-                            Ok(t) => t,
-                            Err(err) => {
-                                error!("fail to parse jito tips: {err:#}");
+                        if let Some(data) = data {
+                            if data.is_empty() {
                                 return;
                             }
-                        };
-
-                        if data.is_empty() {
-                            return;
+                            debug!("jito: {data:?}");
+                            *JITO_TIPS.write().await = *data.first().unwrap();
                         }
-
-                        *JITO_TIPS.write().await = *data.first().unwrap();
                     }
                 })
-                .await;
+                    .await;
 
                 info!("jito tip stream disconnected, retries in 5 seconds");
                 tokio::time::sleep(time::Duration::from_secs(5)).await;
