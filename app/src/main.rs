@@ -1,38 +1,34 @@
 use crate::{config::load_config_file, restful::ServerAPI};
 use cached::instant::Instant;
 use clap::Parser;
-use ore_api::state::Proof;
+use ore_api::{error::OreError, state::Proof};
 use shared::{
     interaction::{BlockHash, Challenge, NextEpoch, User, UserCommand},
     utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
 };
+use solana_client::{
+    client_error::{ClientError, ClientErrorKind, Result as ClientResult},
+    rpc_config::RpcSendTransactionConfig,
+};
 use solana_program::hash::Hash;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
-    commitment_config::CommitmentConfig,
-    signature::{keypair, Keypair, Signer},
+    commitment_config::{CommitmentConfig, CommitmentLevel},
+    signature::{keypair, Keypair, Signature, Signer},
     transaction::Transaction,
 };
-use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
-use ore_api::error::OreError;
-use solana_client::rpc_config::RpcSendTransactionConfig;
-use solana_sdk::commitment_config::CommitmentLevel;
-use solana_sdk::signature::Signature;
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
+use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
-use solana_client::{
-    client_error::{Result as ClientResult}
-};
-use solana_client::client_error::{ClientError, ClientErrorKind};
 
 mod config;
 mod restful;
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("app=trace".parse().unwrap())
+        //.add_directive("app=trace".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -149,14 +145,13 @@ struct Miner {
     api: Arc<ServerAPI>,
 }
 
-
 const CONFIRM_RETRIES: u64 = 10;
 const CONFIRM_DELAY: u64 = 500;
 const GATEWAY_RETRIES: u64 = 5;
 
 impl Miner {
     async fn run(&mut self) {
-        let pubkey = self.keypair.pubkey();
+        let pubkey = self.keypair.pubkey().to_string();
         let mut last_hash_at = 0;
         let mut last_balance = 0;
         let mut deadline = Instant::now();
@@ -170,12 +165,14 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
 
                     sigs = vec![];
                     attempts = 0;
+
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
+
                     let cutoff_time = self.get_cutoff(proof, 8).await;
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
@@ -230,51 +227,17 @@ impl Miner {
                         .await
                         .expect("fail to get latest blockhash");
 
-                    match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
-                        Ok(mut resp) => {
-                            info!("{} >> ready for transaction", self.keypair.pubkey());
-
-                            resp.tx.partial_sign(&[&self.keypair], hash);
-
-                            let rpc = if resp.jito {
-                                self.jito_client.clone()
-                            } else {
-                                self.rpc_client.clone()
-                            };
-
-                            let send_cfg = RpcSendTransactionConfig {
-                                skip_preflight: true,
-                                preflight_commitment: Some(CommitmentLevel::Confirmed),
-                                encoding: Some(UiTransactionEncoding::Base64),
-                                max_retries: Some(0),
-                                min_context_slot: None,
-                            };
-
-                            match rpc.send_transaction_with_config(&resp.tx, send_cfg).await {
-                                Ok(sig) => {
-                                    sigs.push(sig);
-                                    // Send transaction
-                                    match self.send_confirm(&self.rpc_client, &mut sigs).await {
-                                        Ok(data) => if let Some(sig) = data {
-                                            info!("{} {} {}", self.keypair.pubkey(),"OK", sig);
-                                            self.step = MiningStep::Reset;
-                                            continue;
-                                        }
-                                        Err(err) => {
-                                            error!("submit: {:?}", err.kind());
-                                        }
-                                    }
-                                }
-                                Err(err) => {
-                                    error!("submit: {:?}", err.kind());
-                                }
+                    match self.send_transaction(&mut sigs, pubkey.clone(), hash).await {
+                        Ok(r) => {
+                            if let Some(sig) = r {
+                                info!("{} >> {} {}", self.keypair.pubkey(), "OK", sig);
+                                self.step = MiningStep::Reset;
                             }
                         }
                         Err(err) => {
-                            error!("fetch transaction error: {err:#}");
+                            error!("{} >> submit error: {err:#}", pubkey);
                         }
                     }
-
                     attempts += 1;
                 }
 
@@ -285,7 +248,12 @@ impl Miner {
         }
     }
 
-    async fn do_submit(&self, sigs: &mut Vec<Signature>, pubkey: String, hash: [u8; 32]) -> anyhow::Result<Option<Signature>> {
+    async fn send_transaction(
+        &self,
+        sigs: &mut Vec<Signature>,
+        pubkey: String,
+        hash: Hash,
+    ) -> anyhow::Result<Option<Signature>> {
         let mut resp = self.api.block_hash(pubkey, hash.to_bytes()).await?;
 
         info!("{} >> ready for transaction", self.keypair.pubkey());

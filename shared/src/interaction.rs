@@ -1,8 +1,8 @@
 use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::ops::Range;
 use solana_sdk::transaction::Transaction;
+use std::ops::Range;
 use thiserror::Error;
 
 pub type Challenge = [u8; 32];

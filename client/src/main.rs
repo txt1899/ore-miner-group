@@ -61,7 +61,7 @@ pub struct UnitTask {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("client=debug".parse().unwrap())
+        //.add_directive("client=debug".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
