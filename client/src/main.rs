@@ -4,17 +4,16 @@ use drillx::{equix, Hash};
 use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use shared::interaction::{ClientResponse, GetWork, ServerResponse, SubmitMiningResult};
 use std::{
+    collections::HashMap,
     ops::Range,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         mpsc,
         Arc,
         Mutex,
     },
     time::{Duration, Instant},
 };
-use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, AtomicU8};
 use tokio::{signal, task::JoinHandle, time};
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
@@ -60,7 +59,7 @@ pub struct CoreManager {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("client=trace".parse().unwrap())
+        .add_directive("client=debug".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -107,16 +106,27 @@ async fn main() {
         let mut cache: HashMap<usize, Vec<SubmitMiningResult>> = HashMap::new();
         while let Ok(rx) = tokio::task::block_in_place(|| result_rx.recv()) {
             let job_id = rx.job_id;
+
             cache.entry(rx.job_id).or_default().push(rx);
+
             if cache[&job_id].len() == cores {
                 if let Some(mut results) = cache.remove(&job_id) {
+                    // sort by difficulty, the best result will be first.
                     results.sort_by(|a, b| b.difficulty.cmp(&a.difficulty));
+
+                    // sum workload.
                     let workload = results.iter().map(|r| r.workload).sum::<u64>();
-                    let mut results = results.drain(..).collect::<Vec<_>>();
+
+                    // get the best result
                     let mut first = results.remove(0);
-                    first.workload = workload;
-                    if let Err(err) = turn_tx.send(first).await {
-                        error!("{}", err);
+
+                    debug!("job_id: {:?}, difficulty: {}", job_id, first.difficulty);
+
+                    if first.difficulty > 0 {
+                        first.workload = workload; // set the total workload
+                        if let Err(err) = turn_tx.send(first).await {
+                            error!("{}", err);
+                        }
                     }
                 }
             }
@@ -159,7 +169,7 @@ impl CoreManager {
         std::thread::spawn(move || {
             // bound thread to core
             let _ = core_affinity::set_for_current(CoreId {
-                id
+                id,
             });
             let mut memory = equix::SolverMemory::new();
             loop {
@@ -183,7 +193,9 @@ impl CoreManager {
                         stop_time,
                     } = task;
 
-                    debug!("core: {id}, task rage: {data:?}");
+                    if id == 0 {
+                        debug!("core: {id}, task rage: {data:?}");
+                    }
 
                     let mut nonce = data.start;
                     let end = data.end;
@@ -199,38 +211,47 @@ impl CoreManager {
                             &challenge,
                             &nonce.to_le_bytes(),
                         ) {
-                            let difficulty = hx.difficulty();
-                            if difficulty.gt(&best_difficulty) {
+                            let diff = hx.difficulty();
+                            if diff.gt(&best_difficulty) {
                                 best_nonce = nonce;
-                                best_difficulty = difficulty;
+                                best_difficulty = diff;
                                 best_hash = hx;
                             }
                             hashes += 1;
                         }
 
-                        if nonce % 5 == 0 && stop_time.le(&Instant::now()) {
+                        if stop_time.le(&Instant::now()) {
                             break;
                         }
 
                         if nonce.ge(&end) {
                             break;
                         }
-
-                        std::thread::sleep(Duration::from_millis(10));
                         nonce += 1;
                     }
 
-                    println!("core: {id}, done");
+                    trace!("core: {id} difficulty: {best_difficulty}");
 
-                    sender.send(SubmitMiningResult {
-                        job_id,
-                        difficulty: best_difficulty,
-                        challenge,
-                        workload: hashes,
-                        nonce: best_nonce,
-                        digest: best_hash.d,
-                        hash: best_hash.h,
-                    }).ok();
+                    // if server diff is higher than mine, ignore
+                    sender
+                        .send(if best_difficulty > difficulty {
+                            SubmitMiningResult {
+                                job_id,
+                                difficulty: best_difficulty,
+                                challenge,
+                                workload: hashes,
+                                nonce: best_nonce,
+                                digest: best_hash.d,
+                                hash: best_hash.h,
+                            }
+                        } else {
+                            SubmitMiningResult {
+                                job_id,
+                                workload: hashes,
+                                ..Default::default()
+                            }
+                        })
+                        .ok();
                 }
             }
         })
@@ -250,7 +271,6 @@ async fn subscribe_jobs(
     let watch_shutdown = || {
         async {
             time::sleep(Duration::from_secs(1)).await;
-            println!("watch shutdown");
             shutdown.load(Ordering::SeqCst)
         }
     };
@@ -300,7 +320,7 @@ async fn subscribe_jobs(
                 }
                 // the best result will be sent to the server
                 res = turn_rx.recv() => {
-                    println!("submit result: {res:?}");
+                    debug!("submit result: {res:?}");
                     match res {
                         Some(result) => {
                             let data = ServerResponse::MiningResult(result);
@@ -321,6 +341,7 @@ async fn subscribe_jobs(
                                     match data {
                                         ClientResponse::GetWork(work) => {
                                             debug!("new work received: {work:?}");
+
                                             let GetWork {
                                                 job_id,
                                                 challenge,
@@ -342,7 +363,7 @@ async fn subscribe_jobs(
                                                     job_id,
                                                     difficulty,
                                                     challenge,
-                                                    data: i * limit..(i + 1) * limit,
+                                                    data: job.start+ i * limit .. job.start + (i + 1) * limit,
                                                     stop_time: Instant::now() + Duration::from_secs(work_time),
                                                 }) {
                                                     error!("fail to send unit task: {err:#}");

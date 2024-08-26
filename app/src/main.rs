@@ -1,10 +1,12 @@
 use crate::{config::load_config_file, restful::ServerAPI};
 use cached::instant::Instant;
+use clap::Parser;
 use ore_api::state::Proof;
 use shared::{
     interaction::{BlockHash, Challenge, NextEpoch, User, UserCommand},
     utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
 };
+use solana_program::hash::Hash;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
@@ -12,8 +14,6 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
-use clap::Parser;
-use solana_program::hash::Hash;
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
@@ -155,7 +155,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
                     let cutoff_time = self.get_cutoff(proof, 8).await;
@@ -194,12 +194,14 @@ impl Miner {
                     //     .await
                     //     .expect("fail to get latest blockhash ");
 
-                    let hash = Hash::new(&[0_u8;32]);
+                    let hash = Hash::new(&[0_u8; 32]);
 
                     match self.api.block_hash(pubkey.to_string(), hash.to_bytes()).await {
                         Ok(mut tx) => {
-                            info!("[CMD] {:#} new tx", self.keypair.pubkey());
+                            info!("[CMD] {:#} new tx received", self.keypair.pubkey());
                             tx.partial_sign(&[&self.keypair], hash);
+
+                            self.step = MiningStep::Waiting;
 
                             // TODO: submit transaction
                         }
@@ -212,7 +214,9 @@ impl Miner {
                     }
                 }
 
-                MiningStep::Waiting => {}
+                MiningStep::Waiting => {
+                    time::sleep(Duration::from_secs(1)).await;
+                }
             }
         }
     }

@@ -6,10 +6,15 @@ use serde_json::{json, Value};
 use solana_program::{native_token::lamports_to_sol, pubkey};
 use solana_sdk::{pubkey::Pubkey, signature::Signature, transaction::Transaction};
 use solana_transaction_status::{Encodable, EncodedTransaction, UiTransactionEncoding};
-use std::fmt::{Display, Formatter};
-use std::sync::Arc;
-use tokio::{sync::RwLock, task::JoinHandle, time};
-use tokio::sync::Mutex;
+use std::{
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
+use tokio::{
+    sync::{Mutex, RwLock},
+    task::JoinHandle,
+    time,
+};
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 
@@ -47,8 +52,7 @@ pub struct JitoResponse<T> {
 
 async fn make_jito_request<T>(method: &'static str, params: Value) -> anyhow::Result<T>
 where
-    T: de::DeserializeOwned,
-{
+    T: de::DeserializeOwned, {
     let response = reqwest::Client::new()
         .post("https://ny.mainnet.block-engine.jito.wtf/api/v1/bundles")
         .header("Content-Type", "application/json")
@@ -205,9 +209,7 @@ pub async fn subscribe_jito_tips() -> JoinHandle<()> {
                                         let _ = guard.send(Message::Ping(data)).await;
                                         None
                                     }
-                                    _ => {
-                                        None
-                                    }
+                                    _ => None,
                                 }
                             }
                             Err(err) => {
@@ -225,7 +227,7 @@ pub async fn subscribe_jito_tips() -> JoinHandle<()> {
                         }
                     }
                 })
-                    .await;
+                .await;
 
                 info!("jito tip stream disconnected, retries in 5 seconds");
                 tokio::time::sleep(time::Duration::from_secs(5)).await;

@@ -48,7 +48,8 @@ impl ServerAPI {
             data,
         };
 
-        let resp = self.request::<_, Transaction>("/api/v1/transaction", Method::POST, block).await?;
+        let resp =
+            self.request::<_, Transaction>("/api/v1/transaction", Method::POST, block).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
@@ -67,8 +68,7 @@ impl ServerAPI {
     ) -> anyhow::Result<RestfulResponse<R>>
     where
         T: ser::Serialize,
-        R: de::DeserializeOwned,
-    {
+        R: de::DeserializeOwned, {
         let mut url = Url::parse(&self.url)?;
         url = url.join(&endpoint)?;
 

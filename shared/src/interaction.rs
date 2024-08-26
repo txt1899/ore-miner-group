@@ -57,7 +57,7 @@ pub enum ClientResponse {
 
 impl_bytes_conversion!(ClientResponse);
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize)]
 pub struct SubmitMiningResult {
     pub job_id: usize,
     pub difficulty: u32,
@@ -113,7 +113,6 @@ pub enum UserCommand {
     NextEpoch(NextEpoch),
     BuildTransaction(BlockHash),
 }
-
 
 // restful api
 
