@@ -43,7 +43,7 @@ impl CoreManager {
 
                 if let Ok(task) = data {
                     let UnitTask {
-                        job_id,
+                        id: job_id,
                         difficulty,
                         challenge,
                         data,

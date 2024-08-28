@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::interaction::{ClientResponse, GetWork, ServerResponse, SubmitMiningResult};
+use shared::interaction::{ClientResponse, WorkData, ServerResponse, SubmitMiningResult};
 
 use crate::{manager::CoreManager, stream::subscribe_jobs};
 
@@ -52,7 +52,7 @@ struct Args {
 }
 
 pub struct UnitTask {
-    job_id: usize,
+    id: usize,
     difficulty: u32,
     challenge: [u8; 32],
     data: Range<u64>,

@@ -12,7 +12,7 @@ use tokio::time;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::*;
 
-use shared::interaction::{ClientResponse, GetWork, ServerResponse, SubmitMiningResult};
+use shared::interaction::{ClientResponse, WorkData, ServerResponse, SubmitMiningResult};
 
 use crate::UnitTask;
 
@@ -101,12 +101,13 @@ pub(crate) async fn subscribe_jobs(
                                         ClientResponse::GetWork(work) => {
                                             debug!("new work received: {work:?}");
 
-                                            let GetWork {
-                                                job_id,
+                                            let WorkData {
+                                                id,
                                                 challenge,
-                                                job,
+                                                work,
                                                 difficulty,
                                                 cutoff, // TODO need a timestamp
+                                                deadline,
                                                 work_time
                                             } = work;
 
@@ -116,13 +117,13 @@ pub(crate) async fn subscribe_jobs(
                                             );
 
                                             // each core thread will push a certain number of nonce
-                                            let limit = (job.end - job.start).saturating_div(count);
+                                            let limit = (work.end - work.start).saturating_div(count);
                                             for i in 0..count {
                                                 if let Err(err) = task_tx.send(UnitTask {
-                                                    job_id,
+                                                    id,
                                                     difficulty,
                                                     challenge,
-                                                    data: job.start+ i * limit .. job.start + (i + 1) * limit,
+                                                    data: work.start+ i * limit .. work.start + (i + 1) * limit,
                                                     stop_time: Instant::now() + Duration::from_secs(work_time),
                                                 }) {
                                                     error!("fail to send unit task: {err:#}");

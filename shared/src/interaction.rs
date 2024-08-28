@@ -53,7 +53,7 @@ impl_bytes_conversion!(ServerResponse);
 /// server -> client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientResponse {
-    GetWork(GetWork),
+    GetWork(WorkData),
 }
 
 impl_bytes_conversion!(ClientResponse);
@@ -70,11 +70,12 @@ pub struct SubmitMiningResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetWork {
-    pub job_id: usize,
+pub struct WorkData {
+    pub id: usize,
     pub challenge: Challenge,
-    pub job: Range<u64>,
+    pub work: Range<u64>,
     pub difficulty: u32,
+    pub deadline: i64,
     pub cutoff: u64,
     pub work_time: u64,
 }
