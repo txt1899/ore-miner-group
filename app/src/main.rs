@@ -1,11 +1,8 @@
-use crate::{config::load_config_file, restful::ServerAPI};
+use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
+
 use cached::instant::Instant;
 use clap::Parser;
 use ore_api::{error::OreError, state::Proof};
-use shared::{
-    interaction::{BlockHash, Challenge, NextEpoch, User, UserCommand},
-    utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
-};
 use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
     rpc_config::RpcSendTransactionConfig,
@@ -18,10 +15,16 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
-use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
+
+use shared::{
+    interaction::{BlockHash, Challenge, NextEpoch, User, UserCommand},
+    utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
+};
+
+use crate::{config::load_config_file, restful::ServerAPI};
 
 mod config;
 mod restful;
@@ -81,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     debug!("config: {cfg:?}");
 
     let api = Arc::new(ServerAPI {
+        name: cfg.name,
         url: format!("http://{}", cfg.server_host),
     });
 
@@ -89,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
     let keys: Vec<_> = keypairs.iter().map(|m| m.pubkey().to_string()).collect();
 
     // login and get rpc url
-    match api.login("app".to_string(), keys).await {
+    match api.login(keys).await {
         Ok((rpc, jito_rpc)) => {
             cfg.rpc = Some(cfg.rpc.unwrap_or(rpc));
             cfg.jito_url = Some(cfg.jito_url.unwrap_or(jito_rpc));
@@ -165,7 +169,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
 
                     sigs = vec![];
                     attempts = 0;
@@ -183,10 +187,7 @@ impl Miner {
                         error!("update new epoch error: {err:#}")
                     } else {
                         let challenge_str = bs58::encode(&proof.challenge).into_string();
-                        info!(
-                            "{} >> challenge: {challenge_str} cutoff: {cutoff_time}",
-                            pubkey
-                        );
+                        info!("{} >> challenge: {challenge_str} cutoff: {cutoff_time}", pubkey);
                         self.step = MiningStep::Mining;
                     }
 

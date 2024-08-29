@@ -1,8 +1,8 @@
 use std::{
     sync::{
+        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
-        Arc,
     },
     time::{Duration, Instant},
 };
@@ -12,7 +12,7 @@ use tokio::time;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::*;
 
-use shared::interaction::{ClientResponse, WorkData, ServerResponse, SubmitMiningResult};
+use shared::interaction::{ClientResponse, ServerResponse, WorkData, WorkResult};
 
 use crate::UnitTask;
 
@@ -20,7 +20,7 @@ pub(crate) async fn subscribe_jobs(
     url: String,
     shutdown: Arc<AtomicBool>,
     task_tx: mpsc::Sender<UnitTask>,
-    mut turn_rx: tokio::sync::mpsc::Receiver<SubmitMiningResult>,
+    mut turn_rx: tokio::sync::mpsc::Receiver<WorkResult>,
     count: u64,
     max_retry: u32,
 ) {
@@ -82,7 +82,7 @@ pub(crate) async fn subscribe_jobs(
                     debug!("submit result: {res:?}");
                     match res {
                         Some(result) => {
-                            let data = ServerResponse::MiningResult(result);
+                            let data = ServerResponse::WorkResult(result);
                             write.send(Message::Binary(data.into())).await.ok();
                         }
                         None => {
@@ -104,9 +104,8 @@ pub(crate) async fn subscribe_jobs(
                                             let WorkData {
                                                 id,
                                                 challenge,
-                                                work,
+                                                range,
                                                 difficulty,
-                                                cutoff, // TODO need a timestamp
                                                 deadline,
                                                 work_time
                                             } = work;
@@ -117,13 +116,13 @@ pub(crate) async fn subscribe_jobs(
                                             );
 
                                             // each core thread will push a certain number of nonce
-                                            let limit = (work.end - work.start).saturating_div(count);
+                                            let limit = (range.end - range.start).saturating_div(count);
                                             for i in 0..count {
                                                 if let Err(err) = task_tx.send(UnitTask {
                                                     id,
                                                     difficulty,
                                                     challenge,
-                                                    data: work.start+ i * limit .. work.start + (i + 1) * limit,
+                                                    data: range.start+ i * limit .. range.start + (i + 1) * limit,
                                                     stop_time: Instant::now() + Duration::from_secs(work_time),
                                                 }) {
                                                     error!("fail to send unit task: {err:#}");

@@ -2,9 +2,9 @@ use std::{
     collections::HashMap,
     ops::Range,
     sync::{
+        Arc,
         atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         mpsc,
-        Arc,
         Mutex,
     },
     time::{Duration, Instant},
@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::interaction::{ClientResponse, WorkData, ServerResponse, SubmitMiningResult};
+use shared::interaction::{ClientResponse, ServerResponse, WorkData, WorkResult};
 
 use crate::{manager::CoreManager, stream::subscribe_jobs};
 
@@ -105,11 +105,11 @@ async fn main() {
 
     // receive tasks result
     tokio::spawn(async move {
-        let mut cache: HashMap<usize, Vec<SubmitMiningResult>> = HashMap::new();
+        let mut cache: HashMap<usize, Vec<WorkResult>> = HashMap::new();
         while let Ok(rx) = tokio::task::block_in_place(|| result_rx.recv()) {
-            let job_id = rx.job_id;
+            let job_id = rx.id;
 
-            cache.entry(rx.job_id).or_default().push(rx);
+            cache.entry(rx.id).or_default().push(rx);
 
             if cache[&job_id].len() == cores {
                 if let Some(mut results) = cache.remove(&job_id) {

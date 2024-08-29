@@ -1,8 +1,9 @@
+use std::ops::Range;
+
 use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use solana_sdk::transaction::Transaction;
-use std::ops::Range;
 use thiserror::Error;
 
 pub type Challenge = [u8; 32];
@@ -45,7 +46,13 @@ macro_rules! impl_bytes_conversion {
 /// client -> server
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ServerResponse {
-    MiningResult(SubmitMiningResult),
+    /// Client notify the server of the received task
+    WorkResponse {
+        id: usize,
+        key: String,
+    },
+    /// Client send the work result to server
+    WorkResult(WorkResult),
 }
 
 impl_bytes_conversion!(ServerResponse);
@@ -53,14 +60,15 @@ impl_bytes_conversion!(ServerResponse);
 /// server -> client
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientResponse {
+    /// Server send the work to client
     GetWork(WorkData),
 }
 
 impl_bytes_conversion!(ClientResponse);
 
 #[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitMiningResult {
-    pub job_id: usize,
+pub struct WorkResult {
+    pub id: usize,
     pub difficulty: u32,
     pub challenge: Challenge,
     pub workload: u64,
@@ -73,10 +81,9 @@ pub struct SubmitMiningResult {
 pub struct WorkData {
     pub id: usize,
     pub challenge: Challenge,
-    pub work: Range<u64>,
+    pub range: Range<u64>,
     pub difficulty: u32,
     pub deadline: i64,
-    pub cutoff: u64,
     pub work_time: u64,
 }
 
@@ -97,6 +104,7 @@ pub struct LoginResponse {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NextEpoch {
+    pub user: String,
     pub key: String,
     pub challenge: Challenge,
     pub cutoff: u64,
@@ -104,8 +112,15 @@ pub struct NextEpoch {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BlockHash {
+    pub user: String,
     pub key: String,
     pub data: [u8; 32],
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Peek {
+    pub user: String,
+    pub keys: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -159,6 +174,8 @@ pub enum RestfulError {
     SolutionNotFound,
     #[error("Internal Server Error")]
     InternalServerError,
+    #[error("custom error: {0}")]
+    Custom(String),
 }
 
 impl RestfulError {
@@ -168,6 +185,7 @@ impl RestfulError {
             RestfulError::KeyNotFound => -10001,
             RestfulError::SolutionNotFound => -10002,
             RestfulError::InternalServerError => -30000,
+            RestfulError::Custom(_) => -90000,
         }
     }
 }
@@ -191,6 +209,9 @@ impl ResponseError for RestfulError {
                 HttpResponse::InternalServerError().json(RestfulResponse::<()>::error(error, code))
             }
             RestfulError::SolutionNotFound => {
+                HttpResponse::BadRequest().json(RestfulResponse::<()>::error(error, code))
+            }
+            RestfulError::Custom(_) => {
                 HttpResponse::BadRequest().json(RestfulResponse::<()>::error(error, code))
             }
         }

@@ -1,5 +1,5 @@
 use std::{
-    sync::{mpsc, Arc, Mutex},
+    sync::{Arc, mpsc, Mutex},
     time::Instant,
 };
 
@@ -7,18 +7,18 @@ use core_affinity::CoreId;
 use drillx::{equix, Hash};
 use tracing::{debug, trace};
 
-use shared::interaction::SubmitMiningResult;
+use shared::interaction::WorkResult;
 
 use crate::UnitTask;
 
 pub(crate) struct CoreManager {
-    pub sender: mpsc::Sender<SubmitMiningResult>,
+    pub sender: mpsc::Sender<WorkResult>,
     pub receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
 impl CoreManager {
-    pub(crate) fn run(&self, id: usize) -> std::thread::JoinHandle<()> {
-        debug!("unit core: {:?}", id);
+    pub(crate) fn run(&self, cid: usize) -> std::thread::JoinHandle<()> {
+        debug!("unit core: {:?}", cid);
 
         let receiver = self.receiver.clone();
         let sender = self.sender.clone();
@@ -26,7 +26,7 @@ impl CoreManager {
         std::thread::spawn(move || {
             // bound thread to core
             let _ = core_affinity::set_for_current(CoreId {
-                id,
+                id: cid,
             });
             let mut memory = equix::SolverMemory::new();
             loop {
@@ -37,20 +37,20 @@ impl CoreManager {
                 };
 
                 if let Err(err) = data {
-                    debug!("core: {:?}, error: {}", id, err);
+                    debug!("core: {:?}, error: {}", cid, err);
                     return;
                 }
 
                 if let Ok(task) = data {
                     let UnitTask {
-                        id: job_id,
+                        id,
                         difficulty,
                         challenge,
                         data,
                         stop_time,
                     } = task;
 
-                    if id == 0 {
+                    if cid == 0 {
                         debug!("core: {id}, task rage: {data:?}");
                     }
 
@@ -92,8 +92,8 @@ impl CoreManager {
                     // if server diff is higher than mine, ignore
                     sender
                         .send(if best_difficulty > difficulty {
-                            SubmitMiningResult {
-                                job_id,
+                            WorkResult {
+                                id,
                                 difficulty: best_difficulty,
                                 challenge,
                                 workload: hashes,
@@ -102,8 +102,8 @@ impl CoreManager {
                                 hash: best_hash.h,
                             }
                         } else {
-                            SubmitMiningResult {
-                                job_id,
+                            WorkResult {
+                                id,
                                 workload: hashes,
                                 ..Default::default()
                             }

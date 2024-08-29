@@ -1,5 +1,6 @@
 use reqwest::{Method, Url};
 use serde::{de, ser};
+
 use shared::interaction::{
     BlockHash,
     BlockHashResponse,
@@ -9,17 +10,17 @@ use shared::interaction::{
     RestfulResponse,
     User,
 };
-use solana_sdk::transaction::Transaction;
 
 pub struct ServerAPI {
+    pub name: String,
     pub url: String,
 }
 
 impl ServerAPI {
     /// login and get rpc url
-    pub async fn login(&self, name: String, keys: Vec<String>) -> anyhow::Result<(String, String)> {
+    pub async fn login(&self, keys: Vec<String>) -> anyhow::Result<(String, String)> {
         let user = User {
-            name,
+            name: self.name.clone(),
             keys,
         };
         let resp = self.request::<_, LoginResponse>("/api/v1/login", Method::POST, user).await?;
@@ -38,6 +39,7 @@ impl ServerAPI {
         cutoff: u64,
     ) -> anyhow::Result<()> {
         let epoch = NextEpoch {
+            user: self.name.clone(),
             key,
             challenge,
             cutoff,
@@ -56,6 +58,7 @@ impl ServerAPI {
         data: [u8; 32],
     ) -> anyhow::Result<BlockHashResponse> {
         let block = BlockHash {
+            user: self.name.clone(),
             key,
             data,
         };
