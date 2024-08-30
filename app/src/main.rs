@@ -20,9 +20,10 @@ use tracing::*;
 use tracing_subscriber::EnvFilter;
 
 use shared::{
-    interaction::{BlockHash, Challenge, NextEpoch, User, UserCommand},
+    interaction::{NextEpoch, User, UserCommand},
     utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
 };
+use shared::types::MinerKey;
 
 use crate::{config::load_config_file, restful::ServerAPI};
 
@@ -84,13 +85,13 @@ async fn main() -> anyhow::Result<()> {
     debug!("config: {cfg:?}");
 
     let api = Arc::new(ServerAPI {
-        name: cfg.name,
+        user: cfg.user,
         url: format!("http://{}", cfg.server_host),
     });
 
     let keypairs = parse_keypair()?;
 
-    let keys: Vec<_> = keypairs.iter().map(|m| m.pubkey().to_string()).collect();
+    let keys: Vec<_> = keypairs.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
 
     // login and get rpc url
     match api.login(keys).await {
@@ -169,7 +170,7 @@ impl Miner {
                         self.keypair.pubkey(),
                         last_hash_at,
                     )
-                    .await;
+                        .await;
 
                     sigs = vec![];
                     attempts = 0;
@@ -182,7 +183,7 @@ impl Miner {
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
 
                     if let Err(err) =
-                        self.api.next_epoch(pubkey.clone(), proof.challenge, cutoff_time).await
+                        self.api.next_epoch(MinerKey(pubkey.clone()), proof.challenge, cutoff_time).await
                     {
                         error!("update new epoch error: {err:#}")
                     } else {
@@ -228,7 +229,7 @@ impl Miner {
                         .await
                         .expect("fail to get latest blockhash");
 
-                    match self.send_transaction(&mut sigs, pubkey.clone(), hash).await {
+                    match self.send_transaction(&mut sigs, MinerKey(pubkey.clone()), hash).await {
                         Ok(r) => {
                             if let Some(sig) = r {
                                 info!("{} >> {} {}", self.keypair.pubkey(), "OK", sig);
@@ -252,37 +253,37 @@ impl Miner {
     async fn send_transaction(
         &self,
         sigs: &mut Vec<Signature>,
-        pubkey: String,
+        miner: MinerKey,
         hash: Hash,
     ) -> anyhow::Result<Option<Signature>> {
-        let mut resp = self.api.block_hash(pubkey, hash.to_bytes()).await?;
-
-        info!("{} >> ready for transaction", self.keypair.pubkey());
-
-        resp.tx.partial_sign(&[&self.keypair], hash);
-
-        let rpc = if resp.jito {
-            self.jito_client.clone()
-        } else {
-            self.rpc_client.clone()
-        };
-
-        let send_cfg = RpcSendTransactionConfig {
-            skip_preflight: true,
-            preflight_commitment: Some(CommitmentLevel::Confirmed),
-            encoding: Some(UiTransactionEncoding::Base64),
-            max_retries: Some(0),
-            min_context_slot: None,
-        };
-
-        let sig = rpc.send_transaction_with_config(&resp.tx, send_cfg).await?;
-
-        sigs.push(sig);
-
-        // Send transaction
-        if let Some(sig) = self.send_confirm(&self.rpc_client, sigs).await? {
-            return Ok(Some(sig));
-        }
+        // let mut resp = self.api.block_hash(miner, hash.to_bytes()).await?;
+        //
+        // info!("{} >> ready for transaction", self.keypair.pubkey());
+        //
+        // resp.tx.partial_sign(&[&self.keypair], hash);
+        //
+        // let rpc = if resp.jito {
+        //     self.jito_client.clone()
+        // } else {
+        //     self.rpc_client.clone()
+        // };
+        //
+        // let send_cfg = RpcSendTransactionConfig {
+        //     skip_preflight: true,
+        //     preflight_commitment: Some(CommitmentLevel::Confirmed),
+        //     encoding: Some(UiTransactionEncoding::Base64),
+        //     max_retries: Some(0),
+        //     min_context_slot: None,
+        // };
+        //
+        // let sig = rpc.send_transaction_with_config(&resp.tx, send_cfg).await?;
+        //
+        // sigs.push(sig);
+        //
+        // // Send transaction
+        // if let Some(sig) = self.send_confirm(&self.rpc_client, sigs).await? {
+        //     return Ok(Some(sig));
+        // }
         Ok(None)
     }
 

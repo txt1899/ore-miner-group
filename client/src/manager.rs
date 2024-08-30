@@ -7,12 +7,12 @@ use core_affinity::CoreId;
 use drillx::{equix, Hash};
 use tracing::{debug, trace};
 
-use shared::interaction::WorkResult;
+use shared::interaction::MiningResult;
 
 use crate::UnitTask;
 
 pub(crate) struct CoreManager {
-    pub sender: mpsc::Sender<WorkResult>,
+    pub sender: mpsc::Sender<MiningResult>,
     pub receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
@@ -92,7 +92,7 @@ impl CoreManager {
                     // if server diff is higher than mine, ignore
                     sender
                         .send(if best_difficulty > difficulty {
-                            WorkResult {
+                            MiningResult {
                                 id,
                                 difficulty: best_difficulty,
                                 challenge,
@@ -102,7 +102,7 @@ impl CoreManager {
                                 hash: best_hash.h,
                             }
                         } else {
-                            WorkResult {
+                            MiningResult {
                                 id,
                                 workload: hashes,
                                 ..Default::default()

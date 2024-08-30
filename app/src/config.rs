@@ -2,9 +2,11 @@ use std::{fs::File, io, path::Path};
 
 use serde::{Deserialize, Serialize};
 
+use shared::types::UserName;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppConfig {
-    pub name: String,
+    pub user: UserName,
     pub server_host: String,
     pub rpc: Option<String>,
     pub jito_url: Option<String>,

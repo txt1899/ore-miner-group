@@ -2,26 +2,24 @@ use reqwest::{Method, Url};
 use serde::{de, ser};
 
 use shared::interaction::{
-    BlockHash,
-    BlockHashResponse,
-    Challenge,
     LoginResponse,
     NextEpoch,
     RestfulResponse,
     User,
 };
+use shared::types::{MinerKey, UserName};
 
 pub struct ServerAPI {
-    pub name: String,
+    pub user: UserName,
     pub url: String,
 }
 
 impl ServerAPI {
     /// login and get rpc url
-    pub async fn login(&self, keys: Vec<String>) -> anyhow::Result<(String, String)> {
+    pub async fn login(&self, miners: Vec<MinerKey>) -> anyhow::Result<(String, String)> {
         let user = User {
-            name: self.name.clone(),
-            keys,
+            user: self.user.clone(),
+            miners,
         };
         let resp = self.request::<_, LoginResponse>("/api/v1/login", Method::POST, user).await?;
         if resp.code == 200 {
@@ -34,13 +32,13 @@ impl ServerAPI {
     /// send then next epoch's challenge adn cutoff
     pub async fn next_epoch(
         &self,
-        key: String,
-        challenge: Challenge,
+        miner: MinerKey,
+        challenge: [u8;32],
         cutoff: u64,
     ) -> anyhow::Result<()> {
         let epoch = NextEpoch {
-            user: self.name.clone(),
-            key,
+            user: self.user.clone(),
+            miner,
             challenge,
             cutoff,
         };
@@ -48,30 +46,6 @@ impl ServerAPI {
         if resp.code == 200 {
             return Ok(());
         }
-        anyhow::bail!(resp.message.unwrap());
-    }
-
-    /// get transaction by block hash
-    pub async fn block_hash(
-        &self,
-        key: String,
-        data: [u8; 32],
-    ) -> anyhow::Result<BlockHashResponse> {
-        let block = BlockHash {
-            user: self.name.clone(),
-            key,
-            data,
-        };
-
-        let resp = self
-            .request::<_, BlockHashResponse>("/api/v1/transaction", Method::POST, block)
-            .await?;
-
-        if resp.code == 200 {
-            let data = resp.data.unwrap();
-            return Ok(data);
-        }
-
         anyhow::bail!(resp.message.unwrap());
     }
 

@@ -19,7 +19,7 @@ use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::interaction::{ClientResponse, ServerResponse, WorkData, WorkResult};
+use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
 
 use crate::{manager::CoreManager, stream::subscribe_jobs};
 
@@ -105,7 +105,7 @@ async fn main() {
 
     // receive tasks result
     tokio::spawn(async move {
-        let mut cache: HashMap<usize, Vec<WorkResult>> = HashMap::new();
+        let mut cache: HashMap<usize, Vec<MiningResult>> = HashMap::new();
         while let Ok(rx) = tokio::task::block_in_place(|| result_rx.recv()) {
             let job_id = rx.id;
 

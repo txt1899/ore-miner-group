@@ -12,7 +12,7 @@ use tokio::time;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::*;
 
-use shared::interaction::{ClientResponse, ServerResponse, WorkData, WorkResult};
+use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
 
 use crate::UnitTask;
 
@@ -20,7 +20,7 @@ pub(crate) async fn subscribe_jobs(
     url: String,
     shutdown: Arc<AtomicBool>,
     task_tx: mpsc::Sender<UnitTask>,
-    mut turn_rx: tokio::sync::mpsc::Receiver<WorkResult>,
+    mut turn_rx: tokio::sync::mpsc::Receiver<MiningResult>,
     count: u64,
     max_retry: u32,
 ) {
@@ -82,7 +82,7 @@ pub(crate) async fn subscribe_jobs(
                     debug!("submit result: {res:?}");
                     match res {
                         Some(result) => {
-                            let data = ServerResponse::WorkResult(result);
+                            let data = ServerResponse::MiningResult(result);
                             write.send(Message::Binary(data.into())).await.ok();
                         }
                         None => {
@@ -98,10 +98,10 @@ pub(crate) async fn subscribe_jobs(
                                 Message::Binary(bin) => {
                                     let data = ClientResponse::from(bin);
                                     match data {
-                                        ClientResponse::GetWork(work) => {
+                                        ClientResponse::MiningWork(work) => {
                                             debug!("new work received: {work:?}");
 
-                                            let WorkData {
+                                            let WorkContent {
                                                 id,
                                                 challenge,
                                                 range,
