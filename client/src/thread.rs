@@ -11,7 +11,7 @@ use shared::interaction::MiningResult;
 
 use crate::UnitTask;
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 pub(crate) struct CoreThread {
     pub sender: mpsc::Sender<MiningResult>,

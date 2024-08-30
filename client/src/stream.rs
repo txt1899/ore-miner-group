@@ -5,8 +5,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
-
-use tokio::sync::mpsc;
+use std::sync::mpsc::Sender;
+use tokio::sync::{broadcast, mpsc};
 
 use futures_util::{
     stream::{SplitSink, SplitStream},
@@ -39,6 +39,7 @@ pub enum StreamCommand {
 pub fn new_subscribe(
     url: String,
     max_retry: u32,
+    mut notify_shutdown: broadcast::Receiver<()>,
 ) -> (mpsc::Sender<StreamCommand>, mpsc::Receiver<StreamMessage>) {
     let (reader_tx, reader_rx) = mpsc::channel(100);
     let (writer_tx, mut writer_rx) = mpsc::channel(100);
@@ -52,7 +53,13 @@ pub fn new_subscribe(
                 Err(err) => {
                     error!("fail to connect to sever: {err:#}");
                     info!("retry...({attempts}/{max_retry})");
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    tokio::select! {
+                        _ = notify_shutdown.recv() => {
+                            debug!("[stream] async thread shutdown");
+                            break
+                        },
+                        _ = tokio::time::sleep(Duration::from_secs(10)) => {}
+                    }
                     continue;
                 }
             };
@@ -63,6 +70,7 @@ pub fn new_subscribe(
 
             loop {
                 if let Err(err) = tokio::select! {
+                     _ = notify_shutdown.recv() => break 'main,
                      res = stream_write(&mut writer_rx, &mut write) => res,
                      res = stream_read(&mut read, &reader_tx) => res
                 } {
@@ -78,6 +86,7 @@ pub fn new_subscribe(
             error!("server disconnected, retries in 10 seconds");
             tokio::time::sleep(Duration::from_secs(10)).await;
         }
+        debug!("[stream] async thread shutdown");
     });
 
     (writer_tx, reader_rx)

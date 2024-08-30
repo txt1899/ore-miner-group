@@ -25,7 +25,7 @@ use crate::{
     thread::CoreThread,
 };
 
-use tokio::sync::mpsc;
+use tokio::sync::{broadcast, mpsc};
 
 mod stream;
 mod thread;
@@ -97,8 +97,8 @@ async fn process_stream(
                     id,
                     wallet,
                 }))
-                .await
-                .ok();
+                    .await
+                    .ok();
 
                 info!(
                     "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
@@ -161,32 +161,42 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
     let url = format!("ws://{}/worker/{}", args.host, args.wallet);
 
+    let (shutdown, _) = broadcast::channel(1);
+
     let (core_tx, mut core_rx, core_handler) = CoreThread::start(cores);
 
-    let (stream_tx, mut stream_rx) = new_subscribe(url, max_retry);
+    let (stream_tx, mut stream_rx) = new_subscribe(url, max_retry, shutdown.subscribe());
 
-    tokio::spawn(async move {
-        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
-        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
-    });
-
-    tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                Some(tasks) = process_stream(&stream_tx, &mut stream_rx, args.wallet.clone(), cores) => {
-                    for task in tasks {
-                        if let Err(err) = core_tx.send(task).await {
-                             error!("fail to send unit task: {err:?}");
+    tokio::spawn({
+        let mut notify_shutdown = shutdown.subscribe();
+        async move {
+            loop {
+                tokio::select! {
+                    _ = notify_shutdown.recv() => break,
+                    Some(tasks) = process_stream(&stream_tx, &mut stream_rx, args.wallet.clone(), cores) => {
+                        for task in tasks {
+                            if let Err(err) = core_tx.send(task).await {
+                                 error!("fail to send unit task: {err:?}");
+                            }
                         }
-                    }
-               }
-                Some(res) = process_task(&mut core_rx, &mut cache, cores) => {
-                    if let Err(err) = stream_tx.send(StreamCommand::Response(ServerResponse::MiningResult(res))).await{
-                        error!("fail to send unit task: {err:?}");
+                   }
+                    Some(res) = process_task(&mut core_rx, &mut cache, cores) => {
+                        if let Err(err) = stream_tx.send(StreamCommand::Response(ServerResponse::MiningResult(res))).await{
+                            error!("fail to send unit task: {err:?}");
+                        }
                     }
                 }
             }
+            debug!("[process] async thread shutdown")
         }
+    });
+
+    // shutdown drop
+    // when one side of the channel is closed, the remaining part will exit
+    tokio::spawn(async move {
+        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
+        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
+        drop(shutdown)
     });
 
     core_handler
