@@ -2,10 +2,17 @@ use reqwest::{Method, Url};
 use serde::{de, ser};
 
 use shared::{
-    interaction::{LoginResponse, NextEpoch, RestfulResponse, Solution, SolutionResponse, User},
+    interaction::{
+        LoginResponse,
+        NextEpoch,
+        Peek,
+        RestfulResponse,
+        Solution,
+        SolutionResponse,
+        User,
+    },
     types::{MinerKey, UserName},
 };
-use shared::interaction::Peek;
 
 pub struct ServerAPI {
     pub url: String,
@@ -70,9 +77,8 @@ impl ServerAPI {
             miner,
         };
 
-        let resp = self
-            .request::<_, SolutionResponse>("/api/v1/solution", Method::POST, payload)
-            .await?;
+        let resp =
+            self.request::<_, SolutionResponse>("/api/v1/solution", Method::POST, payload).await?;
 
         if resp.code == 200 {
             let data = resp.data.unwrap();
@@ -91,8 +97,7 @@ impl ServerAPI {
     ) -> anyhow::Result<RestfulResponse<R>>
     where
         T: ser::Serialize,
-        R: de::DeserializeOwned,
-    {
+        R: de::DeserializeOwned, {
         let mut url = Url::parse(&self.url)?;
         url = url.join(&endpoint)?;
 

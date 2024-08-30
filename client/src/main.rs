@@ -1,30 +1,34 @@
+use clap::{command, Arg, Parser, Subcommand};
+use core_affinity::CoreId;
+use drillx::{equix, Hash};
+use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
 use std::{
     collections::HashMap,
     ops::Range,
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
-        mpsc,
         Arc,
         Mutex,
     },
+    thread::JoinHandle,
     time::{Duration, Instant},
 };
-
-use clap::{command, Parser, Subcommand};
-use core_affinity::CoreId;
-use drillx::{equix, Hash};
-use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
-use tokio::{signal, task::JoinHandle, time};
+use tokio::{signal, time};
 use tokio_tungstenite::tungstenite::{Error, Message};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
 use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
 
-use crate::{manager::CoreManager, stream::subscribe_works};
+use crate::{
+    stream::{new_subscribe, StreamCommand, StreamMessage},
+    thread::CoreThread,
+};
 
-mod manager;
+use tokio::sync::mpsc;
+
 mod stream;
+mod thread;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -71,90 +75,132 @@ fn init_log() {
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
 
-#[tokio::main]
-async fn main() {
-    init_log();
+async fn process_stream(
+    cmd: &mpsc::Sender<StreamCommand>,
+    message: &mut mpsc::Receiver<StreamMessage>,
+    wallet: String,
+    cores: usize,
+) -> Option<Vec<UnitTask>> {
+    if let Some(msg) = message.recv().await {
+        if let Some(data) = match msg {
+            StreamMessage::WorkContent(data) => {
+                let WorkContent {
+                    id,
+                    challenge,
+                    range,
+                    difficulty,
+                    deadline,
+                    work_time,
+                } = data;
 
-    let args = Args::parse();
+                cmd.send(StreamCommand::Response(ServerResponse::WorkResponse {
+                    id,
+                    wallet,
+                }))
+                .await
+                .ok();
+
+                info!(
+                    "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
+                    bs58::encode(challenge).into_string()
+                );
+
+                let mut result = vec![];
+                let limit = (range.end - range.start).saturating_div(cores as u64);
+                for i in 0..cores as u64 {
+                    result.push(UnitTask {
+                        id,
+                        difficulty,
+                        challenge,
+                        data: range.start + i * limit..range.start + (i + 1) * limit,
+                        stop_time: Instant::now() + Duration::from_secs(work_time),
+                    });
+                }
+                return Some(result);
+            }
+            StreamMessage::Ping(ping) => Some(StreamCommand::Ping(ping)),
+        } {
+            cmd.send(data).await.ok();
+        }
+    }
+    None
+}
+
+async fn process_task(
+    result: &mut mpsc::Receiver<MiningResult>,
+    cache: &mut HashMap<usize, Vec<MiningResult>>,
+    cores: usize,
+) -> Option<MiningResult> {
+    if let Some(res) = result.recv().await {
+        let wid = res.id;
+        cache.entry(wid).or_default().push(res);
+        if cache[&wid].len() == cores as usize {
+            if let Some(mut vec) = cache.remove(&wid) {
+                // sort by difficulty, the best result will be first.
+                vec.sort_by(|a, b| b.difficulty.cmp(&a.difficulty));
+                // sum workload.
+                let workload = vec.iter().map(|r| r.workload).sum::<u64>();
+
+                // get the best result
+                let mut first = vec.remove(0);
+                return Some(first);
+            }
+        }
+    }
+    None
+}
+
+fn start_work(args: Args) -> Vec<JoinHandle<()>> {
+    let cores = args.cores.unwrap_or(num_cpus::get());
 
     let max_retry = args.reconnect.unwrap_or(10);
 
-    let cores = args.cores.unwrap_or(num_cpus::get());
-
     info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
 
-    // result channel
-    let (result_tx, result_rx) = mpsc::channel();
+    let mut cache: HashMap<usize, Vec<MiningResult>> = HashMap::new();
 
-    // task channel
-    let (task_tx, task_rx) = mpsc::channel();
+    let url = format!("ws://{}/worker/{}", args.host, args.wallet);
 
-    let arc_task_rx = Arc::new(Mutex::new(task_rx));
+    let (core_tx, mut core_rx, core_handler) = CoreThread::start(cores);
 
-    let mut core_handler = vec![];
+    let (stream_tx, mut stream_rx) = new_subscribe(url, max_retry);
 
-    let shutdown = Arc::new(AtomicBool::new(false));
-
-    // build work threads
-    let manager = CoreManager {
-        sender: result_tx.clone(),
-        receiver: arc_task_rx.clone(),
-    };
-
-    for id in 0..cores {
-        let handler = manager.run(id);
-        core_handler.push(handler);
-    }
-
-    // result send to work server
-    let (turn_tx, turn_rx) = tokio::sync::mpsc::channel(100);
-
-    // receive tasks result
     tokio::spawn(async move {
-        let mut cache: HashMap<usize, Vec<MiningResult>> = HashMap::new();
-        while let Ok(result) = tokio::task::block_in_place(|| result_rx.recv()) {
-            let wid = result.id;
+        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
+        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
+    });
 
-            cache.entry(result.id).or_default().push(result);
-
-            if cache[&wid].len() == cores {
-                if let Some(mut results) = cache.remove(&wid) {
-                    // sort by difficulty, the best result will be first.
-                    results.sort_by(|a, b| b.difficulty.cmp(&a.difficulty));
-
-                    // sum workload.
-                    let workload = results.iter().map(|r| r.workload).sum::<u64>();
-
-                    // get the best result
-                    let mut first = results.remove(0);
-
-                    debug!("wid: {:?}, difficulty: {}", wid, first.difficulty);
-
-                    if first.difficulty > 0 {
-                        first.workload = workload; // set the total workload
-                        if let Err(err) = turn_tx.send(first).await {
-                            error!("{}", err);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(tasks) = process_stream(&stream_tx, &mut stream_rx, args.wallet.clone(), cores) => {
+                    for task in tasks {
+                        if let Err(err) = core_tx.send(task).await {
+                             error!("fail to send unit task: {err:?}");
                         }
+                    }
+               }
+                Some(res) = process_task(&mut core_rx, &mut cache, cores) => {
+                    if let Err(err) = stream_tx.send(StreamCommand::Response(ServerResponse::MiningResult(res))).await{
+                        error!("fail to send unit task: {err:?}");
                     }
                 }
             }
         }
     });
 
-    // subscribe works
-    let clone_shutdown = shutdown.clone();
-    tokio::spawn(async move {
-        let url = format!("ws://{}/worker/{}", args.host, args.wallet);
-        info!("connect: [{}]", url);
-        subscribe_works(args.wallet, url, clone_shutdown, task_tx, turn_rx, cores as u64, max_retry).await
-    });
+    core_handler
+}
 
-    tokio::spawn(async move {
-        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
-        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
-        // `shutdown` set true, `subscribe_jobs()` will exit and then `task_tx` channel will drop
-        shutdown.store(true, Ordering::Relaxed);
-    });
+#[tokio::main]
+async fn main() {
+    init_log();
+
+    let args = Args::parse();
+
+    let shutdown = Arc::new(AtomicBool::new(false));
+
+    let core_handler = start_work(args);
 
     // block main thread, wait for all threads to exit
     for handler in core_handler {

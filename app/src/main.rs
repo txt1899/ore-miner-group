@@ -38,7 +38,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{config::load_config_file, restful::ServerAPI};
 use shared::{
-    interaction::{NextEpoch, User},
+    interaction::{NextEpoch, Peek, User},
     jito,
     types::{MinerKey, UserName},
     utils::{
@@ -48,7 +48,6 @@ use shared::{
         proof_pubkey,
     },
 };
-use shared::interaction::Peek;
 
 mod bet_bus;
 mod config;
@@ -145,7 +144,12 @@ async fn main() -> anyhow::Result<()> {
 
     let payer = match cfg.fee_payer {
         None => None,
-        Some(path) => Some(Arc::new(keypair::read_keypair_file(path).map_err(|_| anyhow::anyhow!("not keypair found"))?))
+        Some(path) => {
+            Some(Arc::new(
+                keypair::read_keypair_file(path)
+                    .map_err(|_| anyhow::anyhow!("not keypair found"))?,
+            ))
+        }
     };
 
     let miner_keys: Vec<_> = keys.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
@@ -177,7 +181,6 @@ async fn main() -> anyhow::Result<()> {
             }
         })
         .collect();
-
 
     // start mining
     let mut handlers = vec![];
@@ -230,7 +233,7 @@ impl Miner {
                         self.signer.pubkey(),
                         last_hash_at,
                     )
-                        .await;
+                    .await;
 
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
@@ -310,11 +313,7 @@ impl Miner {
         }
     }
 
-    async fn transaction(
-        &self,
-        solution: Solution,
-        miner: MinerKey,
-    ) -> anyhow::Result<Signature> {
+    async fn transaction(&self, solution: Solution, miner: MinerKey) -> anyhow::Result<Signature> {
         info!("{} >> ready for transaction", self.signer.pubkey());
 
         anyhow::bail!("test err");

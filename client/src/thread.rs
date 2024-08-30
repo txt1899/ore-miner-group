@@ -1,23 +1,47 @@
-use std::{
-    sync::{mpsc, Arc, Mutex},
-    time::Instant,
-};
-
 use core_affinity::CoreId;
 use drillx::{equix, Hash};
+use std::{
+    sync::{Arc, Mutex},
+    thread::JoinHandle,
+    time::Instant,
+};
 use tracing::*;
 
 use shared::interaction::MiningResult;
 
 use crate::UnitTask;
 
-pub(crate) struct CoreManager {
+use tokio::sync::mpsc;
+
+pub(crate) struct CoreThread {
     pub sender: mpsc::Sender<MiningResult>,
     pub receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
-impl CoreManager {
-    pub(crate) fn run(&self, cid: usize) -> std::thread::JoinHandle<()> {
+impl CoreThread {
+    pub fn start(
+        cores: usize,
+    ) -> (mpsc::Sender<UnitTask>, mpsc::Receiver<MiningResult>, Vec<JoinHandle<()>>) {
+        // task channel
+        let (assign_tx, assign_rx) = mpsc::channel(100);
+        // result channel
+        let (result_tx, result_rx) = mpsc::channel(100);
+
+        let manager = CoreThread {
+            sender: result_tx,
+            receiver: Arc::new(Mutex::new(assign_rx)),
+        };
+
+        let mut handlers = vec![];
+        for id in 0..cores {
+            let handler = manager.run(id);
+            handlers.push(handler);
+        }
+
+        (assign_tx, result_rx, handlers)
+    }
+
+    pub(crate) fn run(&self, cid: usize) -> JoinHandle<()> {
         debug!("unit core: {:?}", cid);
 
         let receiver = self.receiver.clone();
@@ -28,20 +52,22 @@ impl CoreManager {
             let _ = core_affinity::set_for_current(CoreId {
                 id: cid,
             });
+
             let mut memory = equix::SolverMemory::new();
+
             loop {
                 // receive task form channel
                 let data = {
-                    let lock = receiver.lock().unwrap();
-                    lock.recv()
+                    let mut guard = receiver.lock().unwrap();
+                    guard.blocking_recv()
                 };
 
-                if let Err(err) = data {
-                    error!("core: {:?}, error: {}", cid, err);
+                if let None = data {
+                    error!("core: {:?}, task receiver closed", cid,);
                     return;
                 }
 
-                if let Ok(task) = data {
+                if let Some(task) = data {
                     let UnitTask {
                         id,
                         difficulty,
@@ -91,7 +117,7 @@ impl CoreManager {
 
                     // if server diff is higher than mine, ignore
                     sender
-                        .send(if best_difficulty > difficulty {
+                        .blocking_send(if best_difficulty > difficulty {
                             MiningResult {
                                 id,
                                 difficulty: best_difficulty,

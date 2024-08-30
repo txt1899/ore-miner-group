@@ -1,164 +1,135 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc,
         Arc,
     },
     time::{Duration, Instant},
 };
 
-use futures_util::{SinkExt, StreamExt};
-use tokio::time;
-use tokio_tungstenite::tungstenite::Message;
+use tokio::sync::mpsc;
+
+use futures_util::{
+    stream::{SplitSink, SplitStream},
+    SinkExt,
+    StreamExt,
+};
+use serde_json::to_string;
+use tokio::{net::TcpStream, time};
+use tokio_tungstenite::{
+    tungstenite::{Error, Message},
+    MaybeTlsStream,
+    WebSocketStream,
+};
 use tracing::*;
 
 use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
 
 use crate::UnitTask;
 
-pub(crate) async fn subscribe_works(
-    wallet: String,
+pub enum StreamMessage {
+    WorkContent(WorkContent),
+    Ping(Vec<u8>),
+}
+
+pub enum StreamCommand {
+    Response(ServerResponse),
+    Ping(Vec<u8>),
+}
+
+pub fn new_subscribe(
     url: String,
-    shutdown: Arc<AtomicBool>,
-    task_tx: mpsc::Sender<UnitTask>,
-    mut turn_rx: tokio::sync::mpsc::Receiver<MiningResult>,
-    count: u64,
     max_retry: u32,
-) {
+) -> (mpsc::Sender<StreamCommand>, mpsc::Receiver<StreamMessage>) {
+    let (reader_tx, reader_rx) = mpsc::channel(100);
+    let (writer_tx, mut writer_rx) = mpsc::channel(100);
     let mut attempts = 0;
+    tokio::spawn(async move {
+        'main: loop {
+            attempts += 1;
 
-    let watch_shutdown = || {
-        async {
-            time::sleep(Duration::from_secs(1)).await;
-            shutdown.load(Ordering::SeqCst)
-        }
-    };
-
-    'done: loop {
-        attempts += 1;
-
-        if shutdown.load(Ordering::SeqCst) {
-            warn!("shutdown flag is set. exiting...");
-            break 'done;
-        }
-
-        // connect to server
-        let stream = match tokio_tungstenite::connect_async(&url).await {
-            Ok((ws_stream, _)) => ws_stream,
-            Err(err) => {
-                error!("fail to connect to sever: {err:#}");
-                if attempts >= max_retry {
-                    break;
+            let stream = match tokio_tungstenite::connect_async(&url).await {
+                Ok((stream, _)) => stream,
+                Err(err) => {
+                    error!("fail to connect to sever: {err:#}");
+                    info!("retry...({attempts}/{max_retry})");
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    continue;
                 }
-                info!("retry...({attempts}/{max_retry})");
+            };
 
-                tokio::select! {
-                    _= watch_shutdown() => {
-                        if shutdown.load(Ordering::SeqCst) {
-                            warn!("shutdown flag is set. exiting...");
-                            break 'done;
-                        }
+            info!("ws connect to the server");
+
+            let (mut write, mut read) = stream.split();
+
+            loop {
+                if let Err(err) = tokio::select! {
+                     res = stream_write(&mut writer_rx, &mut write) => res,
+                     res = stream_read(&mut read, &reader_tx) => res
+                } {
+                    if writer_rx.is_closed() || reader_tx.is_closed() {
+                        error!("unrecoverable error: {err:?}");
+                        break 'main;
+                    } else {
+                        error!("{err:?}");
+                        break;
                     }
-                    _= tokio::time::sleep(Duration::from_secs(10)) => {}
                 }
-                continue;
             }
-        };
+            error!("server disconnected, retries in 10 seconds");
+            tokio::time::sleep(Duration::from_secs(10)).await;
+        }
+    });
 
-        // connection successful reset attempt
-        attempts = 0;
-        info!("connected to server");
+    (writer_tx, reader_rx)
+}
 
-        let (mut write, mut read) = stream.split();
-        loop {
-            tokio::select! {
-                _= watch_shutdown() => {
-                    if shutdown.load(Ordering::SeqCst) {
-                        warn!("shutdown flag is set. exiting...");
-                        break 'done;
-                    }
-                }
-                // the best result will be sent to the server
-                res = turn_rx.recv() => {
-                    debug!("submit result: {res:?}");
-                    match res {
-                        Some(result) => {
-                            let data = ServerResponse::MiningResult(result);
-                            write.send(Message::Binary(data.into())).await.ok();
-                        }
-                        None => {
-                            error!("turn rx closed");
-                        }
-                    }
-                },
-                // new work from server
-                Some(res) = read.next() => {
-                    match res {
-                        Ok(message) => {
-                            match message {
-                                Message::Binary(bin) => {
-                                    let data = ClientResponse::from(bin);
-                                    match data {
-                                        ClientResponse::MiningWork(work) => {
-                                            debug!("new work received: {work:?}");
+type StreamWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
+type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
-                                            let WorkContent {
-                                                id,
-                                                challenge,
-                                                range,
-                                                difficulty,
-                                                deadline,
-                                                work_time
-                                            } = work;
+async fn stream_write(
+    rx: &mut mpsc::Receiver<StreamCommand>,
+    ws_tx: &mut StreamWriter,
+) -> anyhow::Result<()> {
+    match rx.recv().await {
+        None => anyhow::bail!("command channel closed"),
+        Some(data) => {
+            match data {
+                StreamCommand::Response(data) => ws_tx.send(Message::Binary(data.into())).await,
+                StreamCommand::Ping(ping) => ws_tx.send(Message::Ping(ping)).await,
+            }
+                .map_err(|err| anyhow::anyhow!("ws disconnection: {err:?}"))
+        }
+    }
+}
 
-                                           if let Err(err) = write.send(Message::Binary(ServerResponse::WorkResponse{
-                                                id,
-                                                wallet: wallet.clone()
-                                            }.into())).await {
-                                                error!("fail to send work response: {err:#}");
-                                            }
-
-                                            info!(
-                                                "challenge: `{}` current best difficulty: {difficulty}",
-                                                bs58::encode(challenge).into_string()
-                                            );
-
-                                            // each core thread will push a certain number of nonce
-                                            let limit = (range.end - range.start).saturating_div(count);
-                                            for i in 0..count {
-                                                if let Err(err) = task_tx.send(UnitTask {
-                                                    id,
-                                                    difficulty,
-                                                    challenge,
-                                                    data: range.start+ i * limit .. range.start + (i + 1) * limit,
-                                                    stop_time: Instant::now() + Duration::from_secs(work_time),
-                                                }) {
-                                                    error!("fail to send unit task: {err:#}");
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                Message::Ping(ping) => {
-                                    if let Err(err) = write.send(Message::Pong(ping)).await {
-                                        error!("fail to send pong: {err:#}");
-                                        break;
-                                    }
-                                }
-                                _ => {}
+async fn stream_read(
+    ws_rx: &mut StreamReader,
+    tx: &mpsc::Sender<StreamMessage>,
+) -> anyhow::Result<()> {
+    match ws_rx.next().await {
+        None => anyhow::bail!("ws disconnection"),
+        Some(Err(err)) => anyhow::bail!(err.to_string()),
+        Some(Ok(message)) => {
+            match message {
+                Message::Binary(bin) => {
+                    let data = ClientResponse::from(bin);
+                    match data {
+                        ClientResponse::MiningWork(work) => {
+                            if let Err(err) = tx.send(StreamMessage::WorkContent(work)).await {
+                                anyhow::bail!("message channel closed")
                             }
                         }
-                        Err(err) => {
-                            error!("fail to read from sever: {err:#}");
-                            break;
-                        }
                     }
                 }
+                Message::Ping(ping) => {
+                    debug!("ping arrived");
+                    if let Err(err) = tx.send(StreamMessage::Ping(ping)).await {
+                        anyhow::bail!("message channel closed")
+                    }
+                }
+                _ => {}
             }
         }
-
-        error!("server disconnected, retries in 10 seconds");
-        tokio::time::sleep(Duration::from_secs(10)).await;
     }
-    trace!("stream done");
+    Ok(())
 }
