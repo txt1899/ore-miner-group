@@ -48,7 +48,7 @@ pub enum ServerResponse {
     /// client notify the server of the received task
     WorkResponse {
         id: usize,
-        key: String,
+        wallet: String,
     },
     /// client send the work result to server
     MiningResult(MiningResult),
@@ -129,13 +129,13 @@ pub struct SolutionResponse {
     pub difficulty: u32,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(untagged)]
-pub enum UserCommand {
-    Login(User),
-    NextEpoch(NextEpoch),
-    GetSolution(SolutionResponse),
-}
+// #[derive(Serialize, Deserialize, Debug, Clone)]
+// #[serde(untagged)]
+// pub enum UserCommand {
+//     Login(User),
+//     NextEpoch(NextEpoch),
+//     GetSolution(SolutionResponse),
+// }
 
 // restful api
 
@@ -212,6 +212,7 @@ impl ResponseError for RestfulError {
     fn error_response(&self) -> HttpResponse {
         let code = self.get_code();
         let error_message = self.to_string();
-        HttpResponse::build(self.status_code()).json(RestfulResponse::<()>::error(error_message, code))
+        HttpResponse::build(self.status_code())
+            .json(RestfulResponse::<()>::error(error_message, code))
     }
 }

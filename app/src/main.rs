@@ -1,38 +1,82 @@
-use std::{error::Error, fs, path::PathBuf, process::exit, sync::Arc, time::Duration};
-
+use anyhow::anyhow;
 use cached::instant::Instant;
 use clap::Parser;
+use colored::Colorize;
+use drillx::Solution;
 use ore_api::{error::OreError, state::Proof};
 use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
     rpc_config::RpcSendTransactionConfig,
 };
-use solana_program::hash::Hash;
+use solana_program::{
+    hash::Hash,
+    native_token::lamports_to_sol,
+    pubkey::Pubkey,
+    system_instruction::transfer,
+};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::{CommitmentConfig, CommitmentLevel},
+    compute_budget::ComputeBudgetInstruction,
     signature::{keypair, Keypair, Signature, Signer},
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
+use std::{
+    cmp::min,
+    error::Error,
+    fs,
+    path::PathBuf,
+    process::exit,
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::{
-    interaction::{NextEpoch, User, UserCommand},
-    utils::{get_clock, get_latest_blockhash_with_retries, get_updated_proof_with_authority},
-};
-use shared::types::MinerKey;
-
 use crate::{config::load_config_file, restful::ServerAPI};
+use shared::{
+    interaction::{NextEpoch, User},
+    jito,
+    types::{MinerKey, UserName},
+    utils::{
+        get_clock,
+        get_latest_blockhash_with_retries,
+        get_updated_proof_with_authority,
+        proof_pubkey,
+    },
+};
+use shared::interaction::Peek;
 
+mod bet_bus;
 mod config;
+mod dynamic_fee;
 mod restful;
+
+#[derive(Parser, Debug)]
+#[command(about, version)]
+struct Args {
+    #[arg(
+        long,
+        value_name = "MICROLAMPORTS",
+        help = "Price to pay for compute unit. If dynamic fee url is also set, this value will be the max.",
+        default_value = "100000",
+        global = true
+    )]
+    priority_fee: Option<u64>,
+
+    #[arg(long, help = "Enable dynamic priority fees", global = true)]
+    dynamic_fee: bool,
+
+    #[arg(long, help = "Add jito tip to the miner. Defaults to false", global = true)]
+    jito: bool,
+}
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        //.add_directive("app=trace".parse().unwrap())
+        .add_directive("app=trace".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -80,47 +124,60 @@ fn parse_keypair() -> anyhow::Result<Vec<Keypair>> {
 async fn main() -> anyhow::Result<()> {
     init_log();
 
-    let mut cfg = load_config_file("./config.json").unwrap();
+    let args = Args::parse();
+
+    let mut cfg = load_config_file("./config.json")?;
 
     debug!("config: {cfg:?}");
 
     let api = Arc::new(ServerAPI {
-        user: cfg.user,
         url: format!("http://{}", cfg.server_host),
     });
 
-    let keypairs = parse_keypair()?;
+    let keys = parse_keypair()?;
 
-    let keys: Vec<_> = keypairs.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
+    let user_name = UserName(cfg.user.clone());
 
+    let rpc_client =
+        Arc::new(RpcClient::new_with_commitment(cfg.rpc.unwrap(), CommitmentConfig::confirmed()));
+
+    let jito_client = Arc::new(RpcClient::new(cfg.jito_url.unwrap()));
+
+    let payer = match cfg.fee_payer {
+        None => None,
+        Some(path) => Some(Arc::new(keypair::read_keypair_file(path).map_err(|_| anyhow::anyhow!("not keypair found"))?))
+    };
+
+    let miner_keys: Vec<_> = keys.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
     // login and get rpc url
-    match api.login(keys).await {
+    match api.login(user_name.clone(), miner_keys).await {
         Ok((rpc, jito_rpc)) => {
-            cfg.rpc = Some(cfg.rpc.unwrap_or(rpc));
-            cfg.jito_url = Some(cfg.jito_url.unwrap_or(jito_rpc));
+            //cfg.rpc = Some(cfg.rpc.unwrap_or(rpc));
+            // cfg.jito_url = Some(cfg.jito_url.unwrap_or(jito_rpc));
         }
         Err(err) => {
             anyhow::bail!("login error: {err:#}");
         }
     }
-
-    let rpc_client =
-        Arc::new(RpcClient::new_with_commitment(cfg.rpc.unwrap(), CommitmentConfig::confirmed()));
-    let jito_client = Arc::new(RpcClient::new(cfg.jito_url.unwrap()));
-
     // create miners
-    let miners: Vec<_> = keypairs
+    let miners: Vec<_> = keys
         .into_iter()
         .map(|key| {
             Miner {
-                keypair: key,
+                user: user_name.clone(),
+                signer: key,
+                payer: payer.clone(),
                 step: MiningStep::Reset,
                 rpc_client: rpc_client.clone(),
                 jito_client: jito_client.clone(),
+                priority_fee: args.priority_fee,
+                dynamic_fee: args.dynamic_fee,
+                dynamic_fee_url: cfg.dynamic_fee_url.clone(),
                 api: api.clone(),
             }
         })
         .collect();
+
 
     // start mining
     let mut handlers = vec![];
@@ -143,10 +200,15 @@ enum MiningStep {
 }
 
 struct Miner {
-    keypair: Keypair,
+    user: UserName,
+    signer: Keypair,
+    payer: Option<Arc<Keypair>>,
     step: MiningStep,
     rpc_client: Arc<RpcClient>,
     jito_client: Arc<RpcClient>,
+    priority_fee: Option<u64>,
+    dynamic_fee: bool,
+    dynamic_fee_url: Option<String>,
     api: Arc<ServerAPI>,
 }
 
@@ -156,24 +218,19 @@ const GATEWAY_RETRIES: u64 = 5;
 
 impl Miner {
     async fn run(&mut self) {
-        let pubkey = self.keypair.pubkey().to_string();
+        let pubkey = self.signer.pubkey().to_string();
         let mut last_hash_at = 0;
         let mut last_balance = 0;
         let mut deadline = Instant::now();
-        let mut sigs = vec![];
-        let mut attempts = 0;
         loop {
             match self.step {
                 MiningStep::Reset => {
                     let proof = get_updated_proof_with_authority(
                         &self.rpc_client,
-                        self.keypair.pubkey(),
+                        self.signer.pubkey(),
                         last_hash_at,
                     )
                         .await;
-
-                    sigs = vec![];
-                    attempts = 0;
 
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
@@ -182,8 +239,15 @@ impl Miner {
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
 
-                    if let Err(err) =
-                        self.api.next_epoch(MinerKey(pubkey.clone()), proof.challenge, cutoff_time).await
+                    if let Err(err) = self
+                        .api
+                        .next_epoch(
+                            self.user.clone(),
+                            MinerKey(pubkey.clone()),
+                            proof.challenge,
+                            cutoff_time,
+                        )
+                        .await
                     {
                         error!("update new epoch error: {err:#}")
                     } else {
@@ -196,7 +260,10 @@ impl Miner {
                     // if the difficulty is higher than 8.
                     // we should submit a transaction to activate the miner.
                     if cutoff_time == 0 {
-                        let data = vec![pubkey.clone()];
+                        let data = Peek {
+                            user: self.user.clone(),
+                            miners: vec![MinerKey(pubkey.clone())],
+                        };
                         for i in 0..60 {
                             info!("{} >> peeking difficulty({i})", pubkey);
                             if let Ok(resp) = self.api.peek_difficulty(data.clone()).await {
@@ -219,28 +286,21 @@ impl Miner {
                 }
 
                 MiningStep::Submit => {
-                    if attempts > GATEWAY_RETRIES {
-                        error!("{} >> Max retries", pubkey);
-                        self.step = MiningStep::Reset;
-                        continue;
-                    }
+                    match self.api.get_solution(self.user.clone(), MinerKey(pubkey.clone())).await {
+                        Ok(data) => {
+                            let s = Solution::new(data.digest, data.nonce.to_le_bytes());
 
-                    let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
-                        .await
-                        .expect("fail to get latest blockhash");
-
-                    match self.send_transaction(&mut sigs, MinerKey(pubkey.clone()), hash).await {
-                        Ok(r) => {
-                            if let Some(sig) = r {
-                                info!("{} >> {} {}", self.keypair.pubkey(), "OK", sig);
+                            if let Err(err) = self.transaction(s, MinerKey(pubkey.clone())).await {
+                                error!("{} >> max retries: {:?}", pubkey, err);
                                 self.step = MiningStep::Reset;
+                                continue;
                             }
                         }
                         Err(err) => {
-                            error!("{} >> submit error: {err:#}", pubkey);
+                            error!("fail to get solution: {err:?}");
+                            time::sleep(Duration::from_secs(1)).await;
                         }
                     }
-                    attempts += 1;
                 }
 
                 MiningStep::Waiting => {
@@ -250,41 +310,112 @@ impl Miner {
         }
     }
 
-    async fn send_transaction(
+    async fn transaction(
         &self,
-        sigs: &mut Vec<Signature>,
+        solution: Solution,
         miner: MinerKey,
-        hash: Hash,
-    ) -> anyhow::Result<Option<Signature>> {
-        // let mut resp = self.api.block_hash(miner, hash.to_bytes()).await?;
-        //
-        // info!("{} >> ready for transaction", self.keypair.pubkey());
-        //
-        // resp.tx.partial_sign(&[&self.keypair], hash);
-        //
-        // let rpc = if resp.jito {
-        //     self.jito_client.clone()
-        // } else {
-        //     self.rpc_client.clone()
-        // };
-        //
-        // let send_cfg = RpcSendTransactionConfig {
-        //     skip_preflight: true,
-        //     preflight_commitment: Some(CommitmentLevel::Confirmed),
-        //     encoding: Some(UiTransactionEncoding::Base64),
-        //     max_retries: Some(0),
-        //     min_context_slot: None,
-        // };
-        //
-        // let sig = rpc.send_transaction_with_config(&resp.tx, send_cfg).await?;
-        //
-        // sigs.push(sig);
-        //
-        // // Send transaction
-        // if let Some(sig) = self.send_confirm(&self.rpc_client, sigs).await? {
-        //     return Ok(Some(sig));
-        // }
-        Ok(None)
+    ) -> anyhow::Result<Signature> {
+        info!("{} >> ready for transaction", self.signer.pubkey());
+
+        anyhow::bail!("test err");
+
+        let compute_budget = 500_000;
+        let pubkey = Pubkey::from_str(miner.as_str())?;
+        let mut client = self.rpc_client.clone();
+        let mut sigs = vec![];
+
+        let payer = match self.payer {
+            None => &self.signer,
+            Some(ref payer) => payer,
+        };
+
+        let mut final_ixs = vec![];
+
+        // ix: 0: set compute unit limit
+        final_ixs.push(ComputeBudgetInstruction::set_compute_unit_limit(compute_budget));
+
+        // ix: 1: set compute unit price, we will set the true value later.
+        final_ixs.push(ComputeBudgetInstruction::set_compute_unit_price(0));
+
+        // ix: 2: ore auth instruction
+        final_ixs.push(ore_api::instruction::auth(proof_pubkey(pubkey)));
+
+        // ix: 3: ore mine instruction
+        final_ixs.push(ore_api::instruction::mine(pubkey, pubkey, self.find_bus().await, solution));
+
+        let tip = jito::get_jito_tips().await;
+        let tip_value = tip.p50();
+        if tip_value > 0 {
+            client = self.jito_client.clone();
+            info!("jito tip value: {} SOL", lamports_to_sol(tip_value));
+            let tip_account = jito::pick_jito_recipient();
+
+            // ix: 4: transfer tip to jito
+            final_ixs.push(transfer(&payer.pubkey(), tip_account, tip.p50()));
+        }
+
+        let send_cfg = RpcSendTransactionConfig {
+            skip_preflight: true,
+            preflight_commitment: Some(CommitmentLevel::Confirmed),
+            encoding: Some(UiTransactionEncoding::Base64),
+            max_retries: Some(0),
+            min_context_slot: None,
+        };
+
+        let mut attempts = 0;
+
+        loop {
+            // get real gas
+            let real_fee = if self.dynamic_fee {
+                match self.dynamic_fee().await {
+                    Ok(fee) => fee,
+                    Err(err) => {
+                        let fee = self.priority_fee.unwrap_or(0);
+                        info!(
+                            "  {} {} use fixed priority fee: {}",
+                            "WARNING".bold().yellow(),
+                            err,
+                            fee
+                        );
+                        fee
+                    }
+                }
+            } else {
+                self.priority_fee.unwrap_or(0)
+            };
+
+            // set real priority fee
+            final_ixs.remove(1);
+            final_ixs.insert(1, ComputeBudgetInstruction::set_compute_unit_price(real_fee));
+
+            info!("priority fee: {} SOL", lamports_to_sol(real_fee));
+
+            let (hash, _slot) = get_latest_blockhash_with_retries(&self.rpc_client)
+                .await
+                .expect("fail to get latest blockhash");
+
+            let mut tx = Transaction::new_with_payer(&final_ixs, Some(&payer.pubkey()));
+
+            if self.signer.pubkey() == payer.pubkey() {
+                tx.sign(&[&self.signer], hash);
+            } else {
+                tx.sign(&[&self.signer, payer], hash);
+            }
+
+            let sig = client.send_transaction_with_config(&tx, send_cfg).await?;
+            sigs.push(sig);
+
+            attempts += 1;
+            // Send transaction
+            if let Some(sig) = self.send_confirm(&self.rpc_client, &mut sigs).await? {
+                return Ok(sig);
+            }
+
+            if attempts > GATEWAY_RETRIES {
+                error!("max retries");
+                anyhow::bail!("max retries ")
+            }
+        }
     }
 
     async fn send_confirm(

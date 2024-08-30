@@ -1,8 +1,8 @@
 use std::{
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
+        Arc,
     },
     time::{Duration, Instant},
 };
@@ -16,7 +16,8 @@ use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkCont
 
 use crate::UnitTask;
 
-pub(crate) async fn subscribe_jobs(
+pub(crate) async fn subscribe_works(
+    wallet: String,
     url: String,
     shutdown: Arc<AtomicBool>,
     task_tx: mpsc::Sender<UnitTask>,
@@ -90,7 +91,7 @@ pub(crate) async fn subscribe_jobs(
                         }
                     }
                 },
-                // new job from server
+                // new work from server
                 Some(res) = read.next() => {
                     match res {
                         Ok(message) => {
@@ -109,6 +110,13 @@ pub(crate) async fn subscribe_jobs(
                                                 deadline,
                                                 work_time
                                             } = work;
+
+                                           if let Err(err) = write.send(Message::Binary(ServerResponse::WorkResponse{
+                                                id,
+                                                wallet: wallet.clone()
+                                            }.into())).await {
+                                                error!("fail to send work response: {err:#}");
+                                            }
 
                                             info!(
                                                 "challenge: `{}` current best difficulty: {difficulty}",

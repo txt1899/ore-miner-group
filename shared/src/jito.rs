@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use futures_util::{SinkExt, stream::StreamExt};
+use futures_util::{stream::StreamExt, SinkExt};
 use lazy_static::lazy_static;
 use rand::Rng;
 use serde::{de, Deserialize};

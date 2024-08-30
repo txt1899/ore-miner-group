@@ -6,10 +6,12 @@ use shared::types::UserName;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct AppConfig {
-    pub user: UserName,
+    pub user: String,
     pub server_host: String,
     pub rpc: Option<String>,
     pub jito_url: Option<String>,
+    pub dynamic_fee_url: Option<String>,
+    pub fee_payer: Option<String>,
 }
 
 pub fn load_config_file<P>(config_file: P) -> Result<AppConfig, io::Error>

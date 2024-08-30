@@ -2,9 +2,9 @@ use std::{
     collections::HashMap,
     ops::Range,
     sync::{
-        Arc,
         atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         mpsc,
+        Arc,
         Mutex,
     },
     time::{Duration, Instant},
@@ -21,7 +21,7 @@ use tracing_subscriber::EnvFilter;
 
 use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
 
-use crate::{manager::CoreManager, stream::subscribe_jobs};
+use crate::{manager::CoreManager, stream::subscribe_works};
 
 mod manager;
 mod stream;
@@ -59,9 +59,14 @@ pub struct UnitTask {
     stop_time: Instant,
 }
 
+pub struct UnitResult {
+    server_difficulty: u32,
+    result: MiningResult,
+}
+
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        //.add_directive("client=debug".parse().unwrap())
+        .add_directive("client=debug".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -83,6 +88,7 @@ async fn main() {
 
     // task channel
     let (task_tx, task_rx) = mpsc::channel();
+
     let arc_task_rx = Arc::new(Mutex::new(task_rx));
 
     let mut core_handler = vec![];
@@ -100,19 +106,19 @@ async fn main() {
         core_handler.push(handler);
     }
 
-    // result send to job server stream
+    // result send to work server
     let (turn_tx, turn_rx) = tokio::sync::mpsc::channel(100);
 
     // receive tasks result
     tokio::spawn(async move {
         let mut cache: HashMap<usize, Vec<MiningResult>> = HashMap::new();
-        while let Ok(rx) = tokio::task::block_in_place(|| result_rx.recv()) {
-            let job_id = rx.id;
+        while let Ok(result) = tokio::task::block_in_place(|| result_rx.recv()) {
+            let wid = result.id;
 
-            cache.entry(rx.id).or_default().push(rx);
+            cache.entry(result.id).or_default().push(result);
 
-            if cache[&job_id].len() == cores {
-                if let Some(mut results) = cache.remove(&job_id) {
+            if cache[&wid].len() == cores {
+                if let Some(mut results) = cache.remove(&wid) {
                     // sort by difficulty, the best result will be first.
                     results.sort_by(|a, b| b.difficulty.cmp(&a.difficulty));
 
@@ -122,7 +128,7 @@ async fn main() {
                     // get the best result
                     let mut first = results.remove(0);
 
-                    debug!("job_id: {:?}, difficulty: {}", job_id, first.difficulty);
+                    debug!("wid: {:?}, difficulty: {}", wid, first.difficulty);
 
                     if first.difficulty > 0 {
                         first.workload = workload; // set the total workload
@@ -135,12 +141,12 @@ async fn main() {
         }
     });
 
-    // subscribe jobs
+    // subscribe works
     let clone_shutdown = shutdown.clone();
     tokio::spawn(async move {
-        let url = format!("ws://{}/job/{}", args.host, args.wallet);
+        let url = format!("ws://{}/worker/{}", args.host, args.wallet);
         info!("connect: [{}]", url);
-        subscribe_jobs(url, clone_shutdown, task_tx, turn_rx, cores as u64, max_retry).await
+        subscribe_works(args.wallet, url, clone_shutdown, task_tx, turn_rx, cores as u64, max_retry).await
     });
 
     tokio::spawn(async move {

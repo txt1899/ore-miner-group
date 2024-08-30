@@ -1,11 +1,11 @@
 use std::{
-    sync::{Arc, mpsc, Mutex},
+    sync::{mpsc, Arc, Mutex},
     time::Instant,
 };
 
 use core_affinity::CoreId;
 use drillx::{equix, Hash};
-use tracing::{debug, trace};
+use tracing::*;
 
 use shared::interaction::MiningResult;
 
@@ -37,7 +37,7 @@ impl CoreManager {
                 };
 
                 if let Err(err) = data {
-                    debug!("core: {:?}, error: {}", cid, err);
+                    error!("core: {:?}, error: {}", cid, err);
                     return;
                 }
 

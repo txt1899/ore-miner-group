@@ -31,3 +31,6 @@ clap.workspace = true
 shared.workspace = true
 
 reqwest = "*"
+url.workspace = true
+rand.workspace = true
+colored.workspace = true
