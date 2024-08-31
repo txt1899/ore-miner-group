@@ -29,7 +29,7 @@ bytes.workspace = true
 actix-web.workspace = true
 
 tokio-tungstenite = "*"
-reqwest = { version = "0.11.27", features = ["json"] }
+reqwest = { version = "*", features = ["json"] }
 
 cached = "0.46.1"
 rand = "0.8.5"
