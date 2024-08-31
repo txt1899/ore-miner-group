@@ -33,6 +33,7 @@ use tokio::sync::{broadcast, mpsc, Mutex};
 mod stream;
 mod thread;
 mod watcher;
+mod container;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -182,6 +183,7 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
                     _ = notify_shutdown.recv() => break,
                     Some(msg) = stream_rx.recv() => {
                         if let Some(tasks) = process_stream(&stream_tx, msg, args.wallet.clone(), watcher.clone(), cores).await {
+
                             for task in tasks {
                                 if let Err(err) = core_tx.send(task).await {
                                     error!("fail to send unit task: {err:?}");

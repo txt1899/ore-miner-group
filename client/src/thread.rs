@@ -6,6 +6,7 @@ use std::{
     thread::JoinHandle,
     time::Instant,
 };
+use drillx::equix::SolverMemory;
 use tracing::*;
 
 use shared::interaction::MiningResult;
