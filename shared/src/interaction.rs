@@ -126,14 +126,6 @@ pub struct SolutionResponse {
     pub omg_wallet: Pubkey,
 }
 
-// #[derive(Serialize, Deserialize, Debug, Clone)]
-// #[serde(untagged)]
-// pub enum UserCommand {
-//     Login(User),
-//     NextEpoch(NextEpoch),
-//     GetSolution(SolutionResponse),
-// }
-
 // restful api
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
