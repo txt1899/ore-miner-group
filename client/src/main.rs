@@ -1,23 +1,15 @@
-use clap::{command, Arg, Parser, Subcommand};
-use core_affinity::CoreId;
-use drillx::{equix, Hash};
-use futures_util::{future, FutureExt, StreamExt, TryStreamExt};
+use clap::{command, Parser};
+
 use std::{
-    collections::HashMap,
-    ops::Range,
-    sync::{
-        atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
-        Arc,
-    },
+    sync::Arc,
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-use tokio::{signal, time};
-use tokio_tungstenite::tungstenite::{Error, Message};
+use tokio::signal;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
+use shared::interaction::{ServerResponse, WorkContent};
 
 use crate::{
     stream::{new_subscribe, StreamCommand, StreamMessage},
@@ -25,7 +17,7 @@ use crate::{
 };
 
 use crate::{container::Container, thread::UnitTask};
-use tokio::sync::{broadcast, mpsc, Mutex};
+use tokio::sync::{broadcast, mpsc};
 
 mod container;
 mod stream;

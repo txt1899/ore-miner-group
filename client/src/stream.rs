@@ -1,31 +1,21 @@
-use std::{
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
-        Arc,
-    },
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
 use futures_util::{
-    stream::{SplitSink, SplitStream},
+    stream::SplitSink,
     SinkExt,
     StreamExt,
 };
-use serde_json::to_string;
-use tokio::{net::TcpStream, time};
+use tokio::net::TcpStream;
 use tokio_tungstenite::{
     tungstenite,
-    tungstenite::{Error, Message},
+    tungstenite:: Message,
     MaybeTlsStream,
     WebSocketStream,
 };
 use tracing::*;
 
-use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
-
-use crate::UnitTask;
+use shared::interaction::{ClientResponse, ServerResponse, WorkContent};
 
 pub enum StreamMessage {
     WorkContent(WorkContent),

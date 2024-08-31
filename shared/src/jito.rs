@@ -16,7 +16,7 @@ use tokio::{
     task::JoinHandle,
     time,
 };
-use tokio_tungstenite::tungstenite::{Error, Message};
+use tokio_tungstenite::tungstenite::Message;
 use tracing::*;
 
 lazy_static! {

@@ -1,8 +1,6 @@
 use shared::interaction::MiningResult;
 use std::{
-    ops::Add,
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
         Mutex,
     },

@@ -1,4 +1,3 @@
-use anyhow::anyhow;
 use cached::instant::Instant;
 use clap::Parser;
 use colored::Colorize;
@@ -9,7 +8,6 @@ use solana_client::{
     rpc_config::RpcSendTransactionConfig,
 };
 use solana_program::{
-    hash::Hash,
     native_token::lamports_to_sol,
     pubkey::Pubkey,
     system_instruction::transfer,
@@ -23,11 +21,8 @@ use solana_sdk::{
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
 use std::{
-    cmp::min,
-    error::Error,
     fs,
     path::PathBuf,
-    process::exit,
     str::FromStr,
     sync::Arc,
     time::Duration,
@@ -38,7 +33,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{config::load_config_file, restful::ServerAPI};
 use shared::{
-    interaction::{NextEpoch, Peek, User},
+    interaction::Peek,
     jito,
     types::{MinerKey, UserName},
     utils::{
