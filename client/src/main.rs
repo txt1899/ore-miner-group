@@ -66,7 +66,7 @@ pub struct UnitResult {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("client=trace".parse().unwrap())
+        .add_directive("client=debug".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -78,7 +78,7 @@ async fn process_stream(
     watcher: Arc<Mutex<Watcher>>,
     cores: usize,
 ) -> Option<Vec<UnitTask>> {
-    if let Some(data) = match msg {
+    match msg {
         StreamMessage::WorkContent(data) => {
             let WorkContent {
                 id,
@@ -118,13 +118,13 @@ async fn process_stream(
                     stop_time: Instant::now() + Duration::from_secs(work_time),
                 });
             }
-            return Some(result);
+            Some(result)
         }
-        StreamMessage::Ping(ping) => Some(StreamCommand::Ping(ping)),
-    } {
-        cmd.send(data).await.ok();
+        StreamMessage::Ping(ping) => {
+            cmd.send(StreamCommand::Ping(ping)).await.ok();
+            None
+        }
     }
-    None
 }
 
 async fn process_task(

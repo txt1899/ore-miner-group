@@ -15,11 +15,7 @@ use futures_util::{
 };
 use serde_json::to_string;
 use tokio::{net::TcpStream, time};
-use tokio_tungstenite::{
-    tungstenite::{Error, Message},
-    MaybeTlsStream,
-    WebSocketStream,
-};
+use tokio_tungstenite::{tungstenite, tungstenite::{Error, Message}, MaybeTlsStream, WebSocketStream};
 use tracing::*;
 
 use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
@@ -41,7 +37,7 @@ pub fn new_subscribe(
     max_retry: u32,
     mut notify_shutdown: broadcast::Receiver<()>,
 ) -> (mpsc::Sender<StreamCommand>, mpsc::Receiver<StreamMessage>) {
-    let (reader_tx, reader_rx) = mpsc::channel(100);
+    let (reader_tx, mut reader_rx) = mpsc::channel(100);
     let (writer_tx, mut writer_rx) = mpsc::channel(100);
     let mut attempts = 0;
     tokio::spawn(async move {
@@ -71,8 +67,12 @@ pub fn new_subscribe(
             loop {
                 if let Err(err) = tokio::select! {
                      _ = notify_shutdown.recv() => break 'main,
-                     res = stream_write(&mut writer_rx, &mut write) => res,
-                     res = stream_read(&mut read, &reader_tx) => res
+                     res = writer_rx.recv() => {
+                        stream_write(res, &mut write).await
+                     },
+                     res = read.next() => {
+                        stream_read(res, &reader_tx).await
+                     },
                 } {
                     // before shutdown signal, this should never happen.
                     if writer_rx.is_closed() || reader_tx.is_closed() {
@@ -98,10 +98,10 @@ type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// receive the command and sent to server
 async fn stream_write(
-    rx: &mut mpsc::Receiver<StreamCommand>,
+    data:Option<StreamCommand>,
     ws_tx: &mut StreamWriter,
 ) -> anyhow::Result<()> {
-    match rx.recv().await {
+    match data {
         None => anyhow::bail!("command channel closed"),
         Some(data) => {
             match data {
@@ -115,10 +115,10 @@ async fn stream_write(
 
 /// read data from stream and use the channel send to stream process
 async fn stream_read(
-    ws_rx: &mut StreamReader,
+    data: Option<Result<Message,tungstenite::Error>>,
     tx: &mpsc::Sender<StreamMessage>,
 ) -> anyhow::Result<()> {
-    match ws_rx.next().await {
+    match data {
         None => anyhow::bail!("ws disconnection"),
         Some(Err(err)) => anyhow::bail!(err.to_string()),
         Some(Ok(message)) => {
