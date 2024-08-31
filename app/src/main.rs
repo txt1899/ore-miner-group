@@ -45,7 +45,7 @@ use shared::{
     },
 };
 
-mod bet_bus;
+mod best_bus;
 mod config;
 mod dynamic_fee;
 mod restful;
