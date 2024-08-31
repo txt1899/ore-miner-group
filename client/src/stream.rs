@@ -15,7 +15,12 @@ use futures_util::{
 };
 use serde_json::to_string;
 use tokio::{net::TcpStream, time};
-use tokio_tungstenite::{tungstenite, tungstenite::{Error, Message}, MaybeTlsStream, WebSocketStream};
+use tokio_tungstenite::{
+    tungstenite,
+    tungstenite::{Error, Message},
+    MaybeTlsStream,
+    WebSocketStream,
+};
 use tracing::*;
 
 use shared::interaction::{ClientResponse, MiningResult, ServerResponse, WorkContent};
@@ -97,10 +102,7 @@ type StreamWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Messag
 type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// receive the command and sent to server
-async fn stream_write(
-    data:Option<StreamCommand>,
-    ws_tx: &mut StreamWriter,
-) -> anyhow::Result<()> {
+async fn stream_write(data: Option<StreamCommand>, ws_tx: &mut StreamWriter) -> anyhow::Result<()> {
     match data {
         None => anyhow::bail!("command channel closed"),
         Some(data) => {
@@ -115,7 +117,7 @@ async fn stream_write(
 
 /// read data from stream and use the channel send to stream process
 async fn stream_read(
-    data: Option<Result<Message,tungstenite::Error>>,
+    data: Option<Result<Message, tungstenite::Error>>,
     tx: &mpsc::Sender<StreamMessage>,
 ) -> anyhow::Result<()> {
     match data {

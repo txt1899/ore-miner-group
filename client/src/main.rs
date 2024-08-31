@@ -25,16 +25,16 @@ use crate::{
 };
 
 use crate::{
+    container::Container,
     thread::{CoreResponse, UnitTask},
     watcher::Watcher,
 };
 use tokio::sync::{broadcast, mpsc, Mutex};
-use crate::container::Container;
 
+mod container;
 mod stream;
 mod thread;
 mod watcher;
-mod container;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -77,9 +77,8 @@ async fn process_stream(
     cmd: &mpsc::Sender<StreamCommand>,
     msg: StreamMessage,
     wallet: String,
-    watcher: Arc<Mutex<Watcher>>,
     cores: usize,
-) -> Option<Vec<UnitTask>> {
+) -> Option<(Vec<UnitTask>, Arc<Container>)> {
     match msg {
         StreamMessage::WorkContent(data) => {
             let WorkContent {
@@ -98,21 +97,19 @@ async fn process_stream(
                 .await
                 .ok();
 
-            // {
-            //     let mut guard = watcher.lock().await;
-            //     guard.new_work(id, difficulty);
-            // }
-
             info!(
                 "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
                 bs58::encode(challenge).into_string()
             );
 
-            let mut result = vec![];
+            let mut list = vec![];
+
             let limit = (range.end - range.start).saturating_div(cores as u64);
-            let container = Arc::new(Container::new(cores));
+
+            let container = Arc::new(Container::new(cores, difficulty));
+
             for i in 0..cores as u64 {
-                result.push(UnitTask {
+                list.push(UnitTask {
                     container: Arc::clone(&container),
                     index: i as u16,
                     id,
@@ -123,46 +120,13 @@ async fn process_stream(
                 });
             }
 
-            tokio::spawn(async move {
-                container.monitor(8000).await
-            });
-
-            Some(result)
+            Some((list, container))
         }
         StreamMessage::Ping(ping) => {
             cmd.send(StreamCommand::Ping(ping)).await.ok();
             None
         }
     }
-}
-
-async fn process_task(
-    resp: CoreResponse,
-    watcher: Arc<Mutex<Watcher>>,
-    cores: usize,
-) -> Option<MiningResult> {
-    match resp {
-        CoreResponse::Result {
-            id,
-            index,
-            core,
-            data,
-        } => {
-            debug!("[M] >> id: {id}, core: {core}, index: {index}");
-            // let mut guard = watcher.lock().await;
-            // return guard.best(id, core, index, data);
-        }
-        CoreResponse::Index {
-            id,
-            core,
-            index,
-        } => {
-            debug!("[R] >> id: {id}, core: {core}, index: {index}");
-            // let mut guard = watcher.lock().await;
-            // guard.add(id, core, index);
-        }
-    }
-    None
 }
 
 fn start_work(args: Args) -> Vec<JoinHandle<()>> {
@@ -178,34 +142,36 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
     let (shutdown, _) = broadcast::channel(1);
 
-    let (core_tx, mut core_rx, core_handler) = CoreThread::start(cores);
+    let (core_tx, core_handler) = CoreThread::start(cores);
 
     let (stream_tx, mut stream_rx) = new_subscribe(url, max_retry, shutdown.subscribe());
 
     tokio::spawn({
-        let mut notify_shutdown = shutdown.subscribe();
-        let mut watcher = Arc::new(Mutex::new(Watcher::new()));
         async move {
-            loop {
-                tokio::select! {
-                    _ = notify_shutdown.recv() => break,
-                    Some(msg) = stream_rx.recv() => {
-                        if let Some(tasks) = process_stream(&stream_tx, msg, args.wallet.clone(), watcher.clone(), cores).await {
-                            for task in tasks {
-                                if let Err(err) = core_tx.send(task).await {
-                                    error!("fail to send unit task: {err:?}");
-                                }
-                            }
+            while let Some(msg) = stream_rx.recv().await {
+                if let Some((tasks, container)) =
+                    process_stream(&stream_tx, msg, args.wallet.clone(), cores).await
+                {
+                    // assign task
+                    for task in tasks {
+                        if let Err(err) = core_tx.send(task).await {
+                            error!("fail to send unit task: {err:?}");
                         }
                     }
-                    Some(res) = core_rx.recv() => {
-                        if let Some(res) = process_task(res, watcher.clone(), cores).await {
-                            let data = StreamCommand::Response(ServerResponse::MiningResult(res));
-                            if let Err(err) = stream_tx.send(data).await{
-                                error!("fail to send stream message: {err:?}");
+
+                    // start mining result monitor, set deadline to 12s
+                    let cmd_clone = stream_tx.clone();
+                    tokio::spawn(
+                        async move {
+                            let (difficulty, data) = container.monitor(12000).await;
+                            if data.difficulty.gt(&difficulty) {
+                                info!("id:{} best difficulty: {}", data.id, data.difficulty);
+                                cmd_clone.send(StreamCommand::Response(ServerResponse::MiningResult(data))).await.ok();
+                            } else {
+                                warn!("id:{}, difficulty (remote: {}, local: {})", data.id, difficulty, data.difficulty);
                             }
-                        }
-                    }
+                        },
+                    );
                 }
             }
             debug!("[process] async thread shutdown")

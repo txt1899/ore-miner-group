@@ -1,18 +1,17 @@
 use core_affinity::CoreId;
-use drillx::{equix, Hash};
+use drillx::{equix, equix::SolverMemory, Hash};
 use std::{
     ops::Range,
     sync::{Arc, Mutex},
     thread::JoinHandle,
     time::Instant,
 };
-use drillx::equix::SolverMemory;
 use tracing::*;
 
 use shared::interaction::MiningResult;
 
-use tokio::sync::{broadcast, mpsc};
 use crate::container::Container;
+use tokio::sync::{broadcast, mpsc};
 
 pub(crate) struct UnitTask {
     pub container: Arc<Container>,
@@ -39,21 +38,15 @@ pub enum CoreResponse {
 }
 
 pub(crate) struct CoreThread {
-    pub sender: mpsc::Sender<CoreResponse>,
     pub receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
 impl CoreThread {
-    pub fn start(
-        cores: usize,
-    ) -> (mpsc::Sender<UnitTask>, mpsc::Receiver<CoreResponse>, Vec<JoinHandle<()>>) {
+    pub fn start(cores: usize) -> (mpsc::Sender<UnitTask>, Vec<JoinHandle<()>>) {
         // task channel
         let (assign_tx, assign_rx) = mpsc::channel(100);
-        // result channel
-        let (result_tx, result_rx) = mpsc::channel(100);
 
         let manager = CoreThread {
-            sender: result_tx,
             receiver: Arc::new(Mutex::new(assign_rx)),
         };
 
@@ -63,14 +56,13 @@ impl CoreThread {
             handlers.push(handler);
         }
 
-        (assign_tx, result_rx, handlers)
+        (assign_tx, handlers)
     }
 
     pub(crate) fn run(&self, cid: usize) -> JoinHandle<()> {
         debug!("unit core: {:?}", cid);
 
         let receiver = self.receiver.clone();
-        let sender = self.sender.clone();
 
         std::thread::spawn(move || {
             // bound thread to core
@@ -106,14 +98,6 @@ impl CoreThread {
                     debug!("id: {id}, core: {cid}, task rage: {data:?}");
 
                     container.join(cid);
-
-                    // sender
-                    //     .blocking_send(CoreResponse::Index {
-                    //         id,
-                    //         core: cid,
-                    //         index,
-                    //     })
-                    //     .ok();
 
                     let mut nonce = data.start;
                     let end = data.end;
@@ -152,7 +136,7 @@ impl CoreThread {
 
                     // if server diff is higher than mine, ignore
 
-                    container.add(MiningResult {
+                    container.push(MiningResult {
                         id,
                         difficulty: best_difficulty,
                         challenge,
@@ -161,23 +145,6 @@ impl CoreThread {
                         digest: best_hash.d,
                         hash: best_hash.h,
                     });
-
-                    // sender
-                    //     .blocking_send(CoreResponse::Result {
-                    //         id,
-                    //         index,
-                    //         core: cid,
-                    //         data: MiningResult {
-                    //             id,
-                    //             difficulty: best_difficulty,
-                    //             challenge,
-                    //             workload: hashes,
-                    //             nonce: best_nonce,
-                    //             digest: best_hash.d,
-                    //             hash: best_hash.h,
-                    //         },
-                    //     })
-                    //     .ok();
                 }
             }
         })
