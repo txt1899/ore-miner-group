@@ -8,7 +8,6 @@ use std::{
     sync::{
         atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering},
         Arc,
-        Mutex,
     },
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -25,10 +24,15 @@ use crate::{
     thread::CoreThread,
 };
 
-use tokio::sync::{broadcast, mpsc};
+use crate::{
+    thread::{CoreResponse, UnitTask},
+    watcher::Watcher,
+};
+use tokio::sync::{broadcast, mpsc, Mutex};
 
 mod stream;
 mod thread;
+mod watcher;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -55,14 +59,6 @@ struct Args {
     wallet: String,
 }
 
-pub struct UnitTask {
-    id: usize,
-    difficulty: u32,
-    challenge: [u8; 32],
-    data: Range<u64>,
-    stop_time: Instant,
-}
-
 pub struct UnitResult {
     server_difficulty: u32,
     result: MiningResult,
@@ -70,81 +66,91 @@ pub struct UnitResult {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("client=debug".parse().unwrap())
+        .add_directive("client=trace".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
 
 async fn process_stream(
     cmd: &mpsc::Sender<StreamCommand>,
-    message: &mut mpsc::Receiver<StreamMessage>,
+    msg: StreamMessage,
     wallet: String,
+    watcher: Arc<Mutex<Watcher>>,
     cores: usize,
 ) -> Option<Vec<UnitTask>> {
-    if let Some(msg) = message.recv().await {
-        if let Some(data) = match msg {
-            StreamMessage::WorkContent(data) => {
-                let WorkContent {
+    if let Some(data) = match msg {
+        StreamMessage::WorkContent(data) => {
+            let WorkContent {
+                id,
+                challenge,
+                range,
+                difficulty,
+                deadline,
+                work_time,
+            } = data;
+
+            cmd.send(StreamCommand::Response(ServerResponse::WorkResponse {
+                id,
+                wallet,
+            }))
+                .await
+                .ok();
+
+            // {
+            //     let mut guard = watcher.lock().await;
+            //     guard.new_work(id, difficulty);
+            // }
+
+            info!(
+                "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
+                bs58::encode(challenge).into_string()
+            );
+
+            let mut result = vec![];
+            let limit = (range.end - range.start).saturating_div(cores as u64);
+            for i in 0..cores as u64 {
+                result.push(UnitTask {
+                    index: i as u16,
                     id,
-                    challenge,
-                    range,
                     difficulty,
-                    deadline,
-                    work_time,
-                } = data;
-
-                cmd.send(StreamCommand::Response(ServerResponse::WorkResponse {
-                    id,
-                    wallet,
-                }))
-                    .await
-                    .ok();
-
-                info!(
-                    "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
-                    bs58::encode(challenge).into_string()
-                );
-
-                let mut result = vec![];
-                let limit = (range.end - range.start).saturating_div(cores as u64);
-                for i in 0..cores as u64 {
-                    result.push(UnitTask {
-                        id,
-                        difficulty,
-                        challenge,
-                        data: range.start + i * limit..range.start + (i + 1) * limit,
-                        stop_time: Instant::now() + Duration::from_secs(work_time),
-                    });
-                }
-                return Some(result);
+                    challenge,
+                    data: range.start + i * limit..range.start + (i + 1) * limit,
+                    stop_time: Instant::now() + Duration::from_secs(work_time),
+                });
             }
-            StreamMessage::Ping(ping) => Some(StreamCommand::Ping(ping)),
-        } {
-            cmd.send(data).await.ok();
+            return Some(result);
         }
+        StreamMessage::Ping(ping) => Some(StreamCommand::Ping(ping)),
+    } {
+        cmd.send(data).await.ok();
     }
     None
 }
 
 async fn process_task(
-    result: &mut mpsc::Receiver<MiningResult>,
-    cache: &mut HashMap<usize, Vec<MiningResult>>,
+    resp: CoreResponse,
+    watcher: Arc<Mutex<Watcher>>,
     cores: usize,
 ) -> Option<MiningResult> {
-    if let Some(res) = result.recv().await {
-        let wid = res.id;
-        cache.entry(wid).or_default().push(res);
-        if cache[&wid].len() == cores as usize {
-            if let Some(mut vec) = cache.remove(&wid) {
-                // sort by difficulty, the best result will be first.
-                vec.sort_by(|a, b| b.difficulty.cmp(&a.difficulty));
-                // sum workload.
-                let workload = vec.iter().map(|r| r.workload).sum::<u64>();
-
-                // get the best result
-                let mut first = vec.remove(0);
-                return Some(first);
-            }
+    match resp {
+        CoreResponse::Result {
+            id,
+            index,
+            core,
+            data,
+        } => {
+            debug!("[M] >> id: {id}, core: {core}, index: {index}");
+            // let mut guard = watcher.lock().await;
+            // return guard.best(id, core, index, data);
+        }
+        CoreResponse::Index {
+            id,
+            core,
+            index,
+        } => {
+            debug!("[R] >> id: {id}, core: {core}, index: {index}");
+            // let mut guard = watcher.lock().await;
+            // guard.add(id, core, index);
         }
     }
     None
@@ -157,9 +163,9 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
     info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
 
-    let mut cache: HashMap<usize, Vec<MiningResult>> = HashMap::new();
-
     let url = format!("ws://{}/worker/{}", args.host, args.wallet);
+
+    info!("connect: [{}]", url);
 
     let (shutdown, _) = broadcast::channel(1);
 
@@ -169,20 +175,26 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
     tokio::spawn({
         let mut notify_shutdown = shutdown.subscribe();
+        let mut watcher = Arc::new(Mutex::new(Watcher::new()));
         async move {
             loop {
                 tokio::select! {
                     _ = notify_shutdown.recv() => break,
-                    Some(tasks) = process_stream(&stream_tx, &mut stream_rx, args.wallet.clone(), cores) => {
-                        for task in tasks {
-                            if let Err(err) = core_tx.send(task).await {
-                                 error!("fail to send unit task: {err:?}");
+                    Some(msg) = stream_rx.recv() => {
+                        if let Some(tasks) = process_stream(&stream_tx, msg, args.wallet.clone(), watcher.clone(), cores).await {
+                            for task in tasks {
+                                if let Err(err) = core_tx.send(task).await {
+                                    error!("fail to send unit task: {err:?}");
+                                }
                             }
                         }
-                   }
-                    Some(res) = process_task(&mut core_rx, &mut cache, cores) => {
-                        if let Err(err) = stream_tx.send(StreamCommand::Response(ServerResponse::MiningResult(res))).await{
-                            error!("fail to send unit task: {err:?}");
+                    }
+                    Some(res) = core_rx.recv() => {
+                        if let Some(res) = process_task(res, watcher.clone(), cores).await {
+                            let data = StreamCommand::Response(ServerResponse::MiningResult(res));
+                            if let Err(err) = stream_tx.send(data).await{
+                                error!("fail to send stream message: {err:?}");
+                            }
                         }
                     }
                 }
@@ -207,8 +219,6 @@ async fn main() {
     init_log();
 
     let args = Args::parse();
-
-    let shutdown = Arc::new(AtomicBool::new(false));
 
     let core_handler = start_work(args);
 

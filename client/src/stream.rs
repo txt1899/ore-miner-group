@@ -1,11 +1,11 @@
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
         Arc,
     },
     time::{Duration, Instant},
 };
-use std::sync::mpsc::Sender;
 use tokio::sync::{broadcast, mpsc};
 
 use futures_util::{
@@ -74,6 +74,7 @@ pub fn new_subscribe(
                      res = stream_write(&mut writer_rx, &mut write) => res,
                      res = stream_read(&mut read, &reader_tx) => res
                 } {
+                    // before shutdown signal, this should never happen.
                     if writer_rx.is_closed() || reader_tx.is_closed() {
                         error!("unrecoverable error: {err:?}");
                         break 'main;
@@ -95,6 +96,7 @@ pub fn new_subscribe(
 type StreamWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
 type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
+/// receive the command and sent to server
 async fn stream_write(
     rx: &mut mpsc::Receiver<StreamCommand>,
     ws_tx: &mut StreamWriter,
@@ -106,11 +108,12 @@ async fn stream_write(
                 StreamCommand::Response(data) => ws_tx.send(Message::Binary(data.into())).await,
                 StreamCommand::Ping(ping) => ws_tx.send(Message::Ping(ping)).await,
             }
-                .map_err(|err| anyhow::anyhow!("ws disconnection: {err:?}"))
+            .map_err(|err| anyhow::anyhow!("ws disconnection: {err:?}"))
         }
     }
 }
 
+/// read data from stream and use the channel send to stream process
 async fn stream_read(
     ws_rx: &mut StreamReader,
     tx: &mpsc::Sender<StreamMessage>,

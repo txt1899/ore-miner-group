@@ -1,6 +1,7 @@
 use core_affinity::CoreId;
 use drillx::{equix, Hash};
 use std::{
+    ops::Range,
     sync::{Arc, Mutex},
     thread::JoinHandle,
     time::Instant,
@@ -9,19 +10,40 @@ use tracing::*;
 
 use shared::interaction::MiningResult;
 
-use crate::UnitTask;
-
 use tokio::sync::{broadcast, mpsc};
 
+pub(crate) struct UnitTask {
+    pub index: u16,
+    pub id: usize,
+    pub difficulty: u32,
+    pub challenge: [u8; 32],
+    pub data: Range<u64>,
+    pub stop_time: Instant,
+}
+
+pub enum CoreResponse {
+    Result {
+        id: usize,
+        index: u16,
+        core: usize,
+        data: MiningResult,
+    },
+    Index {
+        id: usize,
+        index: u16,
+        core: usize,
+    },
+}
+
 pub(crate) struct CoreThread {
-    pub sender: mpsc::Sender<MiningResult>,
+    pub sender: mpsc::Sender<CoreResponse>,
     pub receiver: Arc<Mutex<mpsc::Receiver<UnitTask>>>,
 }
 
 impl CoreThread {
     pub fn start(
         cores: usize,
-    ) -> (mpsc::Sender<UnitTask>, mpsc::Receiver<MiningResult>, Vec<JoinHandle<()>>) {
+    ) -> (mpsc::Sender<UnitTask>, mpsc::Receiver<CoreResponse>, Vec<JoinHandle<()>>) {
         // task channel
         let (assign_tx, assign_rx) = mpsc::channel(100);
         // result channel
@@ -69,6 +91,7 @@ impl CoreThread {
 
                 if let Some(task) = data {
                     let UnitTask {
+                        index,
                         id,
                         difficulty,
                         challenge,
@@ -76,9 +99,15 @@ impl CoreThread {
                         stop_time,
                     } = task;
 
-                    if cid == 0 {
-                        debug!("core: {id}, task rage: {data:?}");
-                    }
+                    debug!("id: {id}, core: {cid}, task rage: {data:?}");
+
+                    sender
+                        .blocking_send(CoreResponse::Index {
+                            id,
+                            core: cid,
+                            index,
+                        })
+                        .ok();
 
                     let mut nonce = data.start;
                     let end = data.end;
@@ -113,12 +142,15 @@ impl CoreThread {
                         nonce += 1;
                     }
 
-                    trace!("core: {id} difficulty: {best_difficulty}");
+                    trace!("id: {id}, core: {cid}, difficulty: {best_difficulty}");
 
                     // if server diff is higher than mine, ignore
                     sender
-                        .blocking_send(if best_difficulty > difficulty {
-                            MiningResult {
+                        .blocking_send(CoreResponse::Result {
+                            id,
+                            index,
+                            core: cid,
+                            data: MiningResult {
                                 id,
                                 difficulty: best_difficulty,
                                 challenge,
@@ -126,13 +158,7 @@ impl CoreThread {
                                 nonce: best_nonce,
                                 digest: best_hash.d,
                                 hash: best_hash.h,
-                            }
-                        } else {
-                            MiningResult {
-                                id,
-                                workload: hashes,
-                                ..Default::default()
-                            }
+                            },
                         })
                         .ok();
                 }
