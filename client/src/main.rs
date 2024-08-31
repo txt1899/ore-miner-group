@@ -29,6 +29,7 @@ use crate::{
     watcher::Watcher,
 };
 use tokio::sync::{broadcast, mpsc, Mutex};
+use crate::container::Container;
 
 mod stream;
 mod thread;
@@ -109,8 +110,10 @@ async fn process_stream(
 
             let mut result = vec![];
             let limit = (range.end - range.start).saturating_div(cores as u64);
+            let container = Arc::new(Container::new(cores));
             for i in 0..cores as u64 {
                 result.push(UnitTask {
+                    container: Arc::clone(&container),
                     index: i as u16,
                     id,
                     difficulty,
@@ -119,6 +122,11 @@ async fn process_stream(
                     stop_time: Instant::now() + Duration::from_secs(work_time),
                 });
             }
+
+            tokio::spawn(async move {
+                container.monitor(8000).await
+            });
+
             Some(result)
         }
         StreamMessage::Ping(ping) => {
@@ -183,7 +191,6 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
                     _ = notify_shutdown.recv() => break,
                     Some(msg) = stream_rx.recv() => {
                         if let Some(tasks) = process_stream(&stream_tx, msg, args.wallet.clone(), watcher.clone(), cores).await {
-
                             for task in tasks {
                                 if let Err(err) = core_tx.send(task).await {
                                     error!("fail to send unit task: {err:?}");

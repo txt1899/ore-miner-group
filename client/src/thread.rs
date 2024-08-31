@@ -12,8 +12,10 @@ use tracing::*;
 use shared::interaction::MiningResult;
 
 use tokio::sync::{broadcast, mpsc};
+use crate::container::Container;
 
 pub(crate) struct UnitTask {
+    pub container: Arc<Container>,
     pub index: u16,
     pub id: usize,
     pub difficulty: u32,
@@ -92,6 +94,7 @@ impl CoreThread {
 
                 if let Some(task) = data {
                     let UnitTask {
+                        container,
                         index,
                         id,
                         difficulty,
@@ -102,13 +105,15 @@ impl CoreThread {
 
                     debug!("id: {id}, core: {cid}, task rage: {data:?}");
 
-                    sender
-                        .blocking_send(CoreResponse::Index {
-                            id,
-                            core: cid,
-                            index,
-                        })
-                        .ok();
+                    container.join(cid);
+
+                    // sender
+                    //     .blocking_send(CoreResponse::Index {
+                    //         id,
+                    //         core: cid,
+                    //         index,
+                    //     })
+                    //     .ok();
 
                     let mut nonce = data.start;
                     let end = data.end;
@@ -146,22 +151,33 @@ impl CoreThread {
                     trace!("id: {id}, core: {cid}, difficulty: {best_difficulty}");
 
                     // if server diff is higher than mine, ignore
-                    sender
-                        .blocking_send(CoreResponse::Result {
-                            id,
-                            index,
-                            core: cid,
-                            data: MiningResult {
-                                id,
-                                difficulty: best_difficulty,
-                                challenge,
-                                workload: hashes,
-                                nonce: best_nonce,
-                                digest: best_hash.d,
-                                hash: best_hash.h,
-                            },
-                        })
-                        .ok();
+
+                    container.add(MiningResult {
+                        id,
+                        difficulty: best_difficulty,
+                        challenge,
+                        workload: hashes,
+                        nonce: best_nonce,
+                        digest: best_hash.d,
+                        hash: best_hash.h,
+                    });
+
+                    // sender
+                    //     .blocking_send(CoreResponse::Result {
+                    //         id,
+                    //         index,
+                    //         core: cid,
+                    //         data: MiningResult {
+                    //             id,
+                    //             difficulty: best_difficulty,
+                    //             challenge,
+                    //             workload: hashes,
+                    //             nonce: best_nonce,
+                    //             digest: best_hash.d,
+                    //             hash: best_hash.h,
+                    //         },
+                    //     })
+                    //     .ok();
                 }
             }
         })
