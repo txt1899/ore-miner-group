@@ -14,7 +14,7 @@ actix-ws = "0.3.0"
 actix-broker = "0.4.3"
 actix-files = "0.6.6"
 actix-web-actors = "4.3.0"
-awc = "3.5.1"
+
 
 url = "2.5.2"
 bs58 = "0.5.1"
