@@ -3,7 +3,6 @@ use serde::{de, ser};
 
 use shared::{
     interaction::{
-        LoginResponse,
         NextEpoch,
         Peek,
         RestfulResponse,
@@ -24,15 +23,14 @@ impl ServerAPI {
         &self,
         user: UserName,
         miners: Vec<MinerKey>,
-    ) -> anyhow::Result<(String, String)> {
+    ) -> anyhow::Result<()> {
         let payload = User {
             user,
             miners,
         };
-        let resp = self.request::<_, LoginResponse>("/api/v1/login", Method::POST, payload).await?;
+        let resp = self.request::<_, ()>("/api/v1/login", Method::POST, payload).await?;
         if resp.code == 200 {
-            let data = resp.data.unwrap();
-            return Ok((data.rpc, data.jito_url));
+            return Ok(());
         }
         anyhow::bail!(resp.message.unwrap());
     }

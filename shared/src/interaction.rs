@@ -3,6 +3,7 @@ use std::ops::Range;
 use actix_web::{http::StatusCode, HttpResponse, ResponseError};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use solana_program::pubkey::Pubkey;
 use thiserror::Error;
 
 use crate::types::{MinerKey, UserName};
@@ -94,13 +95,6 @@ pub struct User {
     pub miners: Vec<MinerKey>,
 }
 
-/// if the `app` does not configure `rpc`, these `rpc` will be used
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct LoginResponse {
-    pub rpc: String,
-    pub jito_url: String,
-}
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NextEpoch {
     pub user: UserName,
@@ -128,6 +122,8 @@ pub struct SolutionResponse {
     pub digest: [u8; 16],
     pub hash: [u8; 32],
     pub difficulty: u32,
+    pub omg_tip: u64,
+    pub omg_wallet: Pubkey,
 }
 
 // #[derive(Serialize, Deserialize, Debug, Clone)]

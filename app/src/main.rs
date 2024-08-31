@@ -154,15 +154,17 @@ async fn main() -> anyhow::Result<()> {
     };
 
     let miner_keys: Vec<_> = keys.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
-    // login and get rpc url
-    match api.login(user_name.clone(), miner_keys).await {
-        Ok((_rpc, _jito_rpc)) => {
-            //cfg.rpc = Some(cfg.rpc.unwrap_or(rpc));
-            // cfg.jito_url = Some(cfg.jito_url.unwrap_or(jito_rpc));
-        }
-        Err(err) => {
-            anyhow::bail!("login error: {err:#}");
-        }
+
+    if args.jito {
+        tokio::spawn(async {
+            jito::subscribe_jito_tips().await
+        });
+    }
+
+
+    // login
+    if let Err(err) = api.login(user_name.clone(), miner_keys).await {
+        anyhow::bail!("fail to login, not match miners key: {err:#}");
     }
     // create miners
     let miners: Vec<_> = keys
@@ -248,9 +250,10 @@ impl Miner {
                         let earn = amount_u64_to_string(proof.balance.saturating_sub(last_balance));
 
                         info!(
-                            "difficulty: {}, income: {},  time: {:.2}second",
+                            "difficulty: {}, income: {}, time: {:.2} second",
                             last_difficulty, earn, elapsed
                         );
+                        info!("**********************************************************");
                     }
 
                     last_hash_at = proof.last_hash_at;
@@ -311,20 +314,21 @@ impl Miner {
                 MiningStep::Submit => {
                     match self.api.get_solution(self.user.clone(), miner_key.clone(), last_challenge).await {
                         Ok(data) => {
-                            info!("difficulty: {}" ,data.difficulty);
+                            debug!("difficulty: {}" ,data.difficulty);
 
                             last_difficulty = data.difficulty;
 
-                            let s = Solution::new(data.digest, data.nonce.to_le_bytes());
+                            let solution = Solution::new(data.digest, data.nonce.to_le_bytes());
 
-                            match self.transaction(s, miner_key.clone()).await {
+                            debug!("omg tip: {:?}, {:?}", data.omg_wallet,data.omg_tip);
+
+                            match self.transaction(solution, miner_key.clone(), data.omg_tip, data.omg_wallet).await {
                                 Ok(tx) => {
                                     info!("{} {}", "OK".bold().green(), tx);
                                 }
                                 Err(err) => error!("{} >> max retries: {:?}", pubkey, err)
                             }
-                            self.step = MiningStep::Reset;
-                            elapsed = start_time.elapsed().as_secs_f32();
+                            self.step = MiningStep::Waiting;
                         }
                         Err(err) => {
                             error!("fail to get solution: {err:?}");
@@ -332,16 +336,15 @@ impl Miner {
                         }
                     }
                 }
-
                 MiningStep::Waiting => {
+                    self.step = MiningStep::Reset;
                     elapsed = start_time.elapsed().as_secs_f32();
-                    time::sleep(Duration::from_secs(1)).await;
                 }
             }
         }
     }
 
-    async fn transaction(&self, solution: Solution, miner: MinerKey) -> anyhow::Result<Signature> {
+    async fn transaction(&self, solution: Solution, miner: MinerKey, omg_tip: u64, omg_wallet: Pubkey) -> anyhow::Result<Signature> {
         info!("{} >> ready for transaction", self.signer.pubkey());
 
         let compute_budget = 500_000;
@@ -377,6 +380,11 @@ impl Miner {
 
             // ix: 4: transfer tip to jito
             final_ixs.push(transfer(&payer.pubkey(), tip_account, tip.p50()));
+        }
+
+        // ix: omg tip : has not yet been implemented, omg_tip always eq zero
+        if omg_tip > 0 && omg_tip.le(&500_000) {
+            final_ixs.push(transfer(&payer.pubkey(), &omg_wallet, omg_tip));
         }
 
         let send_cfg = RpcSendTransactionConfig {
