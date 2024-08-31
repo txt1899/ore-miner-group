@@ -71,10 +71,12 @@ impl ServerAPI {
         &self,
         user: UserName,
         miner: MinerKey,
+        challenge:[u8;32]
     ) -> anyhow::Result<SolutionResponse> {
         let payload = Solution {
             user,
             miner,
+            challenge,
         };
 
         let resp =

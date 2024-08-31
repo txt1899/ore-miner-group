@@ -73,7 +73,7 @@ impl CoreThread {
                     let UnitTask {
                         container,
                         id,
-                        difficulty:_,
+                        difficulty: _,
                         challenge,
                         data,
                         stop_time,

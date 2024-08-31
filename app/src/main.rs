@@ -42,6 +42,7 @@ use shared::{
     jito,
     types::{MinerKey, UserName},
     utils::{
+        amount_u64_to_string,
         get_clock,
         get_latest_blockhash_with_retries,
         get_updated_proof_with_authority,
@@ -222,18 +223,35 @@ const GATEWAY_RETRIES: u64 = 5;
 impl Miner {
     async fn run(&mut self) {
         let pubkey = self.signer.pubkey().to_string();
+        let miner_key = MinerKey(pubkey.clone());
+
         let mut last_hash_at = 0;
         let mut last_balance = 0;
+        let mut last_difficulty = 0;
+        let mut last_challenge = [0_u8; 32];
         let mut deadline = Instant::now();
+
+        let mut elapsed = 0_f32;
+        let mut start_time = Instant::now();
         loop {
             match self.step {
                 MiningStep::Reset => {
+                    start_time = Instant::now();
+
                     let proof = get_updated_proof_with_authority(
                         &self.rpc_client,
                         self.signer.pubkey(),
                         last_hash_at,
-                    )
-                    .await;
+                    ).await;
+
+                    if last_difficulty > 0 {
+                        let earn = amount_u64_to_string(proof.balance.saturating_sub(last_balance));
+
+                        info!(
+                            "difficulty: {}, income: {},  time: {:.2}second",
+                            last_difficulty, earn, elapsed
+                        );
+                    }
 
                     last_hash_at = proof.last_hash_at;
                     last_balance = proof.balance;
@@ -242,11 +260,12 @@ impl Miner {
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
 
+
                     if let Err(err) = self
                         .api
                         .next_epoch(
                             self.user.clone(),
-                            MinerKey(pubkey.clone()),
+                            miner_key.clone(),
                             proof.challenge,
                             cutoff_time,
                         )
@@ -254,7 +273,8 @@ impl Miner {
                     {
                         error!("update new epoch error: {err:#}")
                     } else {
-                        let challenge_str = bs58::encode(&proof.challenge).into_string();
+                        last_challenge = proof.challenge;
+                        let challenge_str = bs58::encode(&last_challenge).into_string();
                         info!("{} >> challenge: {challenge_str} cutoff: {cutoff_time}", pubkey);
                         self.step = MiningStep::Mining;
                     }
@@ -265,7 +285,7 @@ impl Miner {
                     if cutoff_time == 0 {
                         let data = Peek {
                             user: self.user.clone(),
-                            miners: vec![MinerKey(pubkey.clone())],
+                            miners: vec![miner_key.clone()],
                         };
                         for i in 0..60 {
                             info!("{} >> peeking difficulty({i})", pubkey);
@@ -275,7 +295,7 @@ impl Miner {
                                     break;
                                 }
                             }
-                            time::sleep(Duration::from_secs(5)).await;
+                            time::sleep(Duration::from_secs(3)).await;
                         }
                     }
                 }
@@ -289,15 +309,22 @@ impl Miner {
                 }
 
                 MiningStep::Submit => {
-                    match self.api.get_solution(self.user.clone(), MinerKey(pubkey.clone())).await {
+                    match self.api.get_solution(self.user.clone(), miner_key.clone(), last_challenge).await {
                         Ok(data) => {
+                            info!("difficulty: {}" ,data.difficulty);
+
+                            last_difficulty = data.difficulty;
+
                             let s = Solution::new(data.digest, data.nonce.to_le_bytes());
 
-                            if let Err(err) = self.transaction(s, MinerKey(pubkey.clone())).await {
-                                error!("{} >> max retries: {:?}", pubkey, err);
-                                self.step = MiningStep::Reset;
-                                continue;
+                            match self.transaction(s, miner_key.clone()).await {
+                                Ok(tx) => {
+                                    info!("{} {}", "OK".bold().green(), tx);
+                                }
+                                Err(err) => error!("{} >> max retries: {:?}", pubkey, err)
                             }
+                            self.step = MiningStep::Reset;
+                            elapsed = start_time.elapsed().as_secs_f32();
                         }
                         Err(err) => {
                             error!("fail to get solution: {err:?}");
@@ -307,6 +334,7 @@ impl Miner {
                 }
 
                 MiningStep::Waiting => {
+                    elapsed = start_time.elapsed().as_secs_f32();
                     time::sleep(Duration::from_secs(1)).await;
                 }
             }
@@ -315,8 +343,6 @@ impl Miner {
 
     async fn transaction(&self, solution: Solution, miner: MinerKey) -> anyhow::Result<Signature> {
         info!("{} >> ready for transaction", self.signer.pubkey());
-
-        anyhow::bail!("test err");
 
         let compute_budget = 500_000;
         let pubkey = Pubkey::from_str(miner.as_str())?;
