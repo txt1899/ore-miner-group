@@ -1,7 +1,7 @@
 use clap::{command, Arg, Parser, Subcommand};
 use core_affinity::CoreId;
 use drillx::{equix, Hash};
-use futures_util::{future, FutureExt, SinkExt, StreamExt, TryStreamExt};
+use futures_util::{future, FutureExt, StreamExt, TryStreamExt};
 use std::{
     collections::HashMap,
     ops::Range,
@@ -26,15 +26,13 @@ use crate::{
 
 use crate::{
     container::Container,
-    thread::{CoreResponse, UnitTask},
-    watcher::Watcher,
+    thread::UnitTask,
 };
 use tokio::sync::{broadcast, mpsc, Mutex};
 
 mod container;
 mod stream;
 mod thread;
-mod watcher;
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -59,11 +57,6 @@ struct Args {
         help = "The solana wallet pubkey address for Receive Rewards"
     )]
     wallet: String,
-}
-
-pub struct UnitResult {
-    server_difficulty: u32,
-    result: MiningResult,
 }
 
 fn init_log() {
@@ -94,8 +87,8 @@ async fn process_stream(
                 id,
                 wallet,
             }))
-                .await
-                .ok();
+            .await
+            .ok();
 
             info!(
                 "challenge: `{}`, server difficulty: {difficulty}, deadline: {deadline}",
@@ -111,7 +104,6 @@ async fn process_stream(
             for i in 0..cores as u64 {
                 list.push(UnitTask {
                     container: Arc::clone(&container),
-                    index: i as u16,
                     id,
                     difficulty,
                     challenge,
@@ -161,17 +153,21 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
                     // start mining result monitor, set deadline to 12s
                     let cmd_clone = stream_tx.clone();
-                    tokio::spawn(
-                        async move {
-                            let (difficulty, data) = container.monitor(12000).await;
-                            if data.difficulty.gt(&difficulty) {
-                                info!("id:{} best difficulty: {}", data.id, data.difficulty);
-                                cmd_clone.send(StreamCommand::Response(ServerResponse::MiningResult(data))).await.ok();
-                            } else {
-                                warn!("id:{}, difficulty (remote: {}, local: {})", data.id, difficulty, data.difficulty);
-                            }
-                        },
-                    );
+                    tokio::spawn(async move {
+                        let (difficulty, data) = container.monitor(12000).await;
+                        if data.difficulty.gt(&difficulty) {
+                            info!("id:{} best difficulty: {}", data.id, data.difficulty);
+                            cmd_clone
+                                .send(StreamCommand::Response(ServerResponse::MiningResult(data)))
+                                .await
+                                .ok();
+                        } else {
+                            warn!(
+                                "id:{}, difficulty (remote: {}, local: {})",
+                                data.id, difficulty, data.difficulty
+                            );
+                        }
+                    });
                 }
             }
             debug!("[process] async thread shutdown")

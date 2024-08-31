@@ -11,30 +11,15 @@ use tracing::*;
 use shared::interaction::MiningResult;
 
 use crate::container::Container;
-use tokio::sync::{broadcast, mpsc};
+use tokio::sync::mpsc;
 
 pub(crate) struct UnitTask {
     pub container: Arc<Container>,
-    pub index: u16,
     pub id: usize,
     pub difficulty: u32,
     pub challenge: [u8; 32],
     pub data: Range<u64>,
     pub stop_time: Instant,
-}
-
-pub enum CoreResponse {
-    Result {
-        id: usize,
-        index: u16,
-        core: usize,
-        data: MiningResult,
-    },
-    Index {
-        id: usize,
-        index: u16,
-        core: usize,
-    },
 }
 
 pub(crate) struct CoreThread {
@@ -87,9 +72,8 @@ impl CoreThread {
                 if let Some(task) = data {
                     let UnitTask {
                         container,
-                        index,
                         id,
-                        difficulty,
+                        difficulty:_,
                         challenge,
                         data,
                         stop_time,

@@ -42,7 +42,7 @@ pub fn new_subscribe(
     max_retry: u32,
     mut notify_shutdown: broadcast::Receiver<()>,
 ) -> (mpsc::Sender<StreamCommand>, mpsc::Receiver<StreamMessage>) {
-    let (reader_tx, mut reader_rx) = mpsc::channel(100);
+    let (reader_tx, reader_rx) = mpsc::channel(100);
     let (writer_tx, mut writer_rx) = mpsc::channel(100);
     let mut attempts = 0;
     tokio::spawn(async move {
@@ -99,7 +99,7 @@ pub fn new_subscribe(
 }
 
 type StreamWriter = SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>;
-type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
+// type StreamReader = SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>;
 
 /// receive the command and sent to server
 async fn stream_write(data: Option<StreamCommand>, ws_tx: &mut StreamWriter) -> anyhow::Result<()> {
@@ -129,7 +129,7 @@ async fn stream_read(
                     let data = ClientResponse::from(bin);
                     match data {
                         ClientResponse::MiningWork(work) => {
-                            if let Err(err) = tx.send(StreamMessage::WorkContent(work)).await {
+                            if let Err(_err) = tx.send(StreamMessage::WorkContent(work)).await {
                                 anyhow::bail!("message channel closed")
                             }
                         }
@@ -137,7 +137,7 @@ async fn stream_read(
                 }
                 Message::Ping(ping) => {
                     debug!("ping arrived");
-                    if let Err(err) = tx.send(StreamMessage::Ping(ping)).await {
+                    if let Err(_err) = tx.send(StreamMessage::Ping(ping)).await {
                         anyhow::bail!("message channel closed")
                     }
                 }

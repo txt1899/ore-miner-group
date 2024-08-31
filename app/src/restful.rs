@@ -99,7 +99,7 @@ impl ServerAPI {
         T: ser::Serialize,
         R: de::DeserializeOwned, {
         let mut url = Url::parse(&self.url)?;
-        url = url.join(&endpoint)?;
+        url = url.join(endpoint)?;
 
         let client = reqwest::Client::new();
 

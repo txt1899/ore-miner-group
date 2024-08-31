@@ -125,7 +125,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let mut cfg = load_config_file("./config.json")?;
+    let cfg = load_config_file("./config.json")?;
 
     debug!("config: {cfg:?}");
 
@@ -155,7 +155,7 @@ async fn main() -> anyhow::Result<()> {
     let miner_keys: Vec<_> = keys.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
     // login and get rpc url
     match api.login(user_name.clone(), miner_keys).await {
-        Ok((rpc, jito_rpc)) => {
+        Ok((_rpc, _jito_rpc)) => {
             //cfg.rpc = Some(cfg.rpc.unwrap_or(rpc));
             // cfg.jito_url = Some(cfg.jito_url.unwrap_or(jito_rpc));
         }

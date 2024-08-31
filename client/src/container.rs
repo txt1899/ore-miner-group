@@ -42,7 +42,7 @@ impl Container {
 
         let timeout = Duration::from_millis(timeout_millis);
 
-        if let Err(err) = tokio::time::timeout(timeout, self.notify.notified()).await {
+        if let Err(_) = tokio::time::timeout(timeout, self.notify.notified()).await {
             let mut guard = self.cores.lock().unwrap();
             guard.sort();
             error!("wait mining result timeout. working cores: {:?}", *guard);

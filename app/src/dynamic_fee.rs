@@ -110,7 +110,7 @@ impl Miner {
                     .as_array()
                     .and_then(|arr| {
                         Some(
-                            arr.into_iter()
+                            arr.iter()
                                 .map(|v| v["prioritizationFee"].as_u64().unwrap())
                                 .collect::<Vec<u64>>(),
                         )
