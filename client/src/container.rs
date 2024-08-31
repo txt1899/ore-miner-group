@@ -38,7 +38,7 @@ impl Container {
 
     // monitor mining result
     pub async fn monitor(&self, timeout_millis: u64) -> (u32, MiningResult) {
-        info!("start monit mining result");
+        info!("start monitoring mining result");
 
         let timeout = Duration::from_millis(timeout_millis);
 

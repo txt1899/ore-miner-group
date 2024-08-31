@@ -1,5 +1,5 @@
 use core_affinity::CoreId;
-use drillx::{equix, equix::SolverMemory, Hash};
+use drillx::{equix, Hash};
 use std::{
     ops::Range,
     sync::{Arc, Mutex},
@@ -117,8 +117,6 @@ impl CoreThread {
                     }
 
                     trace!("id: {id}, core: {cid}, difficulty: {best_difficulty}");
-
-                    // if server diff is higher than mine, ignore
 
                     container.push(MiningResult {
                         id,

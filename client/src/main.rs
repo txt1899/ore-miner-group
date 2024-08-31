@@ -61,7 +61,7 @@ struct Args {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("client=debug".parse().unwrap())
+        .add_directive("client=info".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
@@ -126,17 +126,17 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
 
     let max_retry = args.reconnect.unwrap_or(10);
 
-    info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
-
     let url = format!("ws://{}/worker/{}", args.host, args.wallet);
 
-    info!("connect: [{}]", url);
+    info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
 
     let (shutdown, _) = broadcast::channel(1);
 
     let (core_tx, core_handler) = CoreThread::start(cores);
 
-    let (stream_tx, mut stream_rx) = new_subscribe(url, max_retry, shutdown.subscribe());
+    let (stream_tx, mut stream_rx) = new_subscribe(url.clone(), max_retry, shutdown.subscribe());
+
+    info!("connect to: [{}], work start after 10s", url);
 
     tokio::spawn({
         async move {
@@ -163,7 +163,7 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
                                 .ok();
                         } else {
                             warn!(
-                                "id:{}, difficulty (remote: {}, local: {})",
+                                "id:{}, difficulty(remote:{}, local:{})",
                                 data.id, difficulty, data.difficulty
                             );
                         }
