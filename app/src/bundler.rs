@@ -8,7 +8,6 @@ use std::{
 use drillx::Solution;
 use ore_api::{
     consts::{BUS_ADDRESSES, BUS_COUNT},
-    error::OreError,
     state::{Bus, Proof},
 };
 use ore_utils::AccountDeserialize;
@@ -22,23 +21,19 @@ use shared::{
         get_clock,
         get_latest_blockhash_with_retries,
         get_updated_proof_with_authority,
+        proof_pubkey,
     },
 };
-use solana_client::{
-    client_error::{ClientError, ClientErrorKind, Result as ClientResult},
-    nonblocking::rpc_client::RpcClient,
-};
+use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::CommitmentConfig,
-    compute_budget::ComputeBudgetInstruction,
     instruction::Instruction,
     pubkey::Pubkey,
     signature::{Keypair, Signature},
     signer::Signer,
     transaction::Transaction,
 };
-use solana_transaction_status::TransactionConfirmationStatus;
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{oneshot, RwLock};
 use tracing::*;
 
 use crate::restful::ServerAPI;
@@ -67,6 +62,13 @@ impl Default for LastRound {
             elapsed: 0,
             hash_at: 0,
         }
+    }
+}
+
+impl LastRound {
+    pub fn update(mut self) -> Self {
+        self.elapsed = self.start.elapsed().as_secs();
+        self
     }
 }
 
@@ -179,7 +181,7 @@ impl ChallengeRound {
     }
 
     async fn solution(mut self) -> anyhow::Result<Self> {
-        for i in 0..10 {
+        for _ in 0..5 {
             let resp = self
                 .api
                 .get_solution(self.user.clone(), self.miner.clone(), self.current.challenge)
@@ -187,33 +189,35 @@ impl ChallengeRound {
 
             match resp {
                 Ok(data) => {
+                    info!("soluction >> nonce: {}, difficulty: {}", data.nonce, data.difficulty);
                     self.current.difficulty = data.difficulty;
                     self.response.replace(data);
                     // let solution = Solution::new(data.digest, data.nonce.to_le_bytes());
-                    break;
+                    return Ok(self);
                 }
                 Err(err) => {
                     error!("fail to get remote solution ({err})")
                 }
             };
-            tokio::time::sleep(Duration::from_millis(1000)).await;
+            tokio::time::sleep(Duration::from_millis(500)).await;
         }
-        Ok(self)
+        anyhow::bail!("max retries to get remote solution")
     }
 
-    pub fn transaction(&self, bus: Pubkey, signer: &Keypair, tips: u64) -> Vec<Instruction> {
+    pub fn transaction(&self, bus: Pubkey, signer: &Keypair, tip: u64) -> Vec<Instruction> {
         let data = self.response.as_ref().unwrap();
+
         let pubkey = signer.pubkey();
-        let compute_budget = 500_000;
         let solution = Solution::new(data.digest, data.nonce.to_le_bytes());
 
         let mut ixs = vec![];
 
-        ixs.push(ComputeBudgetInstruction::set_compute_unit_limit(compute_budget));
+        ixs.push(ore_api::instruction::auth(proof_pubkey(pubkey)));
         ixs.push(ore_api::instruction::mine(pubkey, pubkey, bus, solution));
 
-        if tips > 0 {
-            ixs.push(jito::build_bribe_ix(&pubkey, tips));
+        if tip > 0 {
+            info!("{:?}, pay the jito tip: {}", pubkey, tip);
+            ixs.push(jito::build_bribe_ix(&pubkey, tip));
         }
 
         ixs
@@ -278,7 +282,7 @@ async fn signature_confirm(
 ) -> Option<Vec<Signature>> {
     for _ in 0..CONFIRM_RETRIES {
         tokio::time::sleep(Duration::from_millis(CONFIRM_DELAY)).await;
-        match client.get_signature_statuses(&signatures[..]).await {
+        let result = match client.get_signature_statuses(&signatures[..]).await {
             Ok(signature_statuses) => {
                 let result = signature_statuses
                     .value
@@ -292,12 +296,17 @@ async fn signature_confirm(
                         }
                     })
                     .collect::<Vec<_>>();
-                return Some(result);
+                Some(result)
             }
             // Handle confirmation errors
             Err(err) => {
                 error!("{:?}", err.kind());
+                None
             }
+        };
+
+        if result.is_some() && !result.as_ref().unwrap().is_empty() {
+            return result;
         }
     }
     None
@@ -305,14 +314,50 @@ async fn signature_confirm(
 
 pub struct JitoBundler {
     user: UserName,
-    keypairs: HashMap<String, Arc<Keypair>>,
+    fee_payer: Option<Arc<Keypair>>,
+    keypairs: HashMap<MinerKey, Arc<Keypair>>,
     rpc_client: Arc<RpcClient>,
-    rounds: Mutex<HashMap<String, ChallengeRound>>,
+    rounds: RwLock<HashMap<MinerKey, ChallengeRound>>,
     api: Arc<ServerAPI>,
+
+    min_tip: u64,
+    max_tip: u64,
+    bundle_buffer: u64,
 }
 
 impl JitoBundler {
-    pub async fn run(self: &Arc<Self>) {
+    pub fn new(
+        user: UserName,
+        fee_payer: Option<Arc<Keypair>>,
+        miners: HashMap<MinerKey, Arc<Keypair>>,
+        rpc_client: Arc<RpcClient>,
+        api: Arc<ServerAPI>,
+
+        min_tip: u64,
+        max_tip: u64,
+        bundle_buffer: u64,
+    ) -> Self {
+        Self {
+            user,
+            fee_payer,
+            keypairs: miners,
+            rpc_client,
+            rounds: Default::default(),
+            api,
+            min_tip,
+            max_tip,
+            bundle_buffer,
+        }
+    }
+
+    async fn push(self: &Arc<Self>, miner: MinerKey, round: ChallengeRound) {
+        if self.keypairs.contains_key(&miner) {
+            let mut guard = self.rounds.write().await;
+            guard.insert(miner, round);
+        }
+    }
+
+    pub async fn start_mining(self: &Arc<Self>) {
         for (pubkey, keypair) in self.keypairs.iter() {
             let user = self.user.clone();
             let miner = MinerKey(pubkey.to_string());
@@ -325,6 +370,8 @@ impl JitoBundler {
             tokio::spawn(async move {
                 let mut last_rund: Option<LastRound> = None;
                 loop {
+                    debug!("new challenge round");
+
                     let (tx, rx) = oneshot::channel();
 
                     let res = ChallengeRound::new(
@@ -339,13 +386,16 @@ impl JitoBundler {
 
                     match res {
                         Ok(round) => {
-                            this.push(miner.as_str().to_string(), round).await;
+                            debug!("{} waiting bundle", round.user.as_str());
+
+                            this.push(miner.clone(), round).await;
                             if let Ok(val) = rx.await {
                                 last_rund = Some(val)
                             }
                         }
                         Err(err) => {
-                            error!("fail to minig ({err})")
+                            error!("fail to minibg ({err})");
+                            tokio::time::sleep(Duration::from_millis(1000)).await;
                         }
                     }
                 }
@@ -353,21 +403,17 @@ impl JitoBundler {
         }
     }
 
-    async fn push(self: &Arc<Self>, pubkey: String, round: ChallengeRound) {
-        if let Some(_) = self.keypairs.get(&pubkey) {
-            let mut guard = self.rounds.lock().await;
-            guard.insert(pubkey, round);
-        }
-    }
-
-    pub async fn watch(&self) {
+    pub async fn watcher(self: &Arc<Self>) {
         loop {
-            let mut guard = self.rounds.lock().await;
-
-            let keys: Vec<_> = guard
-                .iter()
-                .filter_map(|(key, value)| (value.remaining() < 5).then(|| key.clone()))
-                .collect();
+            let keys: Vec<_> = {
+                let guard = self.rounds.read().await;
+                guard
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        (value.remaining() < self.bundle_buffer as i64).then(|| key.clone())
+                    })
+                    .collect()
+            };
 
             let task = if !keys.is_empty() {
                 let mut cost = 0_u64;
@@ -389,7 +435,10 @@ impl JitoBundler {
                         }
                     };
 
+                    let mut guard = self.rounds.write().await;
+
                     let last = batch.last().unwrap();
+
                     for key in batch.iter() {
                         let bus = buses.remove(0);
 
@@ -401,25 +450,42 @@ impl JitoBundler {
                         let tips = jito::get_jito_tips().await;
 
                         // the last transaction will included tips instruction
-                        let tip = key.eq(last).then(|| min(tips.p50(), 10000)).unwrap_or_default();
+                        let tip = key.eq(last).then(|| {
+                            let min = self.min_tip.max(tips.p50() + 6);
+                            if self.max_tip > 0 {
+                                self.max_tip.min(min)
+                            } else {
+                                min
+                            }
+                        }).unwrap_or_default();
 
                         cost += FEE_PER_SIGNER + tip;
 
                         let ixs = round.transaction(bus, signer, tip);
+
                         let mut tx = Transaction::new_with_payer(&ixs, Some(&signer.pubkey()));
-                        tx.sign(&[&signer], hash);
+
+                        let fee_payer = self.fee_payer.as_ref().unwrap_or(&signer);
+
+                        if fee_payer.pubkey() == signer.pubkey() {
+                            tx.sign(&[&signer], hash);
+                        } else {
+                            tx.sign(&[&signer, &fee_payer], hash);
+                        }
 
                         bundle.push(tx);
                         rounds.push(round);
                     }
                 }
+                info!("current bundle cost: {} SOL", amount_u64_to_string(cost));
+
                 Some((tokio::spawn(async move { jito::send_bundle(bundle).await }), rounds))
             } else {
                 None
             };
 
             // if there is a jito transaction, check the result
-            if let Some(mut val) = task {
+            if let Some(val) = task {
                 let client = Arc::clone(&self.rpc_client);
                 tokio::spawn(async move {
                     match val.0.await.unwrap() {
@@ -428,14 +494,14 @@ impl JitoBundler {
 
                             if let Some(val) = signature_confirm(&client, vec![signature]).await {
                                 if !val.is_empty() {
-                                    error!("landed: {:?}", val[0])
+                                    info!("landed: {:?}", val[0])
                                 } else {
                                     warn!("bundle dropped")
                                 }
                             }
 
                             for item in val.1 {
-                                let _ = item.channel.send(item.current);
+                                let _ = item.channel.send(item.current.update());
                             }
                         }
                         Err(err) => {

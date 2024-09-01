@@ -7,8 +7,8 @@ pub struct AppConfig {
     pub user: String,
     pub server_host: String,
     pub rpc: Option<String>,
-    pub jito_url: Option<String>,
-    pub dynamic_fee_url: Option<String>,
+    // pub jito_url: Option<String>,
+    // pub dynamic_fee_url: Option<String>,
     pub fee_payer: Option<String>,
 }
 
