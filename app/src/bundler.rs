@@ -93,7 +93,6 @@ impl ChallengeRound {
         channel: oneshot::Sender<LastRound>,
         last: Option<LastRound>,
     ) -> Self {
-        let current = LastRound::default();
         Self {
             api,
             user,
@@ -101,7 +100,7 @@ impl ChallengeRound {
             inactive: true,
             cutoff_time: 0,
             response: None,
-            current,
+            current: LastRound::default(),
             last: last.unwrap_or_default(),
             channel,
         }
@@ -139,13 +138,17 @@ impl ChallengeRound {
             );
         }
 
-        let cutoff = get_cutoff(client, proof, BUFFER_TIME).await;
+        let mut cutoff = get_cutoff(client, proof, BUFFER_TIME).await;
+
+        if cutoff >= 5 && cutoff < 10 {
+            cutoff = 12
+        }
 
         self.current.hash_at = proof.last_hash_at;
         self.current.balance = proof.balance;
         self.current.challenge = proof.challenge;
 
-        self.inactive = cutoff == 0;
+        self.inactive = cutoff < 5;
         self.cutoff_time = cutoff;
 
         self.api
@@ -172,7 +175,7 @@ impl ChallengeRound {
             }
             anyhow::bail!("activate miner timeout")
         } else {
-            let deadline = Instant::now() + Duration::from_secs(self.cutoff_time);
+            let deadline = self.current.start + Duration::from_secs(self.cutoff_time);
             while Instant::now().le(&deadline) {
                 tokio::time::sleep(Duration::from_millis(1000)).await;
             }
@@ -394,7 +397,7 @@ impl JitoBundler {
                             }
                         }
                         Err(err) => {
-                            error!("fail to minibg ({err})");
+                            error!("fail to mining ({err})");
                             tokio::time::sleep(Duration::from_millis(1000)).await;
                         }
                     }
@@ -438,6 +441,10 @@ impl JitoBundler {
                     let mut guard = self.rounds.write().await;
 
                     let last = batch.last().unwrap();
+
+                    // TODO
+                    // sort the miners by diffculty
+                    // the highest difficulty matches the largest balance
 
                     for key in batch.iter() {
                         let bus = buses.remove(0);

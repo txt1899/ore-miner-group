@@ -1,8 +1,8 @@
 use std::{
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
-use std::time::Instant;
+
 use shared::interaction::MiningResult;
 use tokio::sync::Notify;
 use tracing::*;

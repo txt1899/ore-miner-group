@@ -110,7 +110,7 @@ async fn process_stream(
     }
 }
 
-fn start_work(args: Args) -> Vec<JoinHandle<()>> {
+fn start_work(args: Args) -> (broadcast::Sender<()>, Vec<JoinHandle<()>>) {
     let cores = args.cores.unwrap_or(num_cpus::get());
 
     let max_retry = args.reconnect.unwrap_or(10);
@@ -163,15 +163,7 @@ fn start_work(args: Args) -> Vec<JoinHandle<()>> {
         }
     });
 
-    // shutdown drop
-    // when one side of the channel is closed, the remaining part will exit
-    tokio::spawn(async move {
-        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
-        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
-        drop(shutdown)
-    });
-
-    core_handler
+    (shutdown, core_handler)
 }
 
 #[tokio::main]
@@ -180,7 +172,15 @@ async fn main() {
 
     let args = Args::parse();
 
-    let core_handler = start_work(args);
+    let (shutdown, core_handler) = start_work(args);
+
+    // shutdown drop
+    // when one side of the channel is closed, the remaining part will exit
+    tokio::spawn(async move {
+        signal::ctrl_c().await.expect("failed to listen for Ctrl+C");
+        info!("ctrl+c received. start shutdown and wait for all threads to complete their work");
+        drop(shutdown)
+    });
 
     // block main thread, wait for all threads to exit
     for handler in core_handler {

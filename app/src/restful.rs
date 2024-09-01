@@ -10,7 +10,7 @@ pub struct ServerAPI {
 }
 
 impl ServerAPI {
-    /// login and get rpc url
+    /// login send miner pubkey to server
     pub async fn login(&self, user: UserName, miners: Vec<MinerKey>) -> anyhow::Result<()> {
         let payload = User {
             user,
@@ -23,7 +23,7 @@ impl ServerAPI {
         anyhow::bail!(resp.message.unwrap());
     }
 
-    /// send then next epoch's challenge adn cutoff
+    /// send then next epoch's challenge and cutoff
     pub async fn next_epoch(
         &self,
         user: UserName,
@@ -44,6 +44,7 @@ impl ServerAPI {
         anyhow::bail!(resp.message.unwrap());
     }
 
+    // check difficulty when miners are inactive
     pub async fn peek_difficulty(&self, data: Peek) -> anyhow::Result<Vec<u32>> {
         let resp = self.request::<_, Vec<u32>>("/api/v1/difficulty", Method::POST, data).await?;
         if resp.code == 200 {
@@ -53,6 +54,7 @@ impl ServerAPI {
         anyhow::bail!(resp.message.unwrap());
     }
 
+    // get the best solution
     pub async fn get_solution(
         &self,
         user: UserName,
