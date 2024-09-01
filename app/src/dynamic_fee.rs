@@ -1,9 +1,10 @@
-use crate::Miner;
 use ore_api::consts::BUS_ADDRESSES;
 use reqwest::Client;
 use serde_json::{json, Value};
 use solana_client::rpc_response::RpcPrioritizationFee;
 use url::Url;
+
+use crate::Miner;
 
 enum FeeStrategy {
     Helius,

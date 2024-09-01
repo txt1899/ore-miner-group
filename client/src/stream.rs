@@ -1,12 +1,13 @@
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc};
 
 use futures_util::{stream::SplitSink, SinkExt, StreamExt};
-use tokio::net::TcpStream;
+use shared::interaction::{ClientResponse, ServerResponse, WorkContent};
+use tokio::{
+    net::TcpStream,
+    sync::{broadcast, mpsc},
+};
 use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::*;
-
-use shared::interaction::{ClientResponse, ServerResponse, WorkContent};
 
 pub enum StreamMessage {
     WorkContent(WorkContent),

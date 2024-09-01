@@ -14,6 +14,7 @@ use_field_init_shorthand = true
 use_small_heuristics = "Off"
 use_try_shorthand = true
 
+group_imports = "StdExternalCrate"
 imports_indent = "Block"
 imports_layout = "HorizontalVertical"
 imports_granularity = "Crate"

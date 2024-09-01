@@ -1,8 +1,9 @@
-use shared::interaction::MiningResult;
 use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+use shared::interaction::MiningResult;
 use tokio::sync::Notify;
 use tracing::*;
 pub struct Container {

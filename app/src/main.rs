@@ -1,8 +1,22 @@
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+
 use cached::instant::Instant;
 use clap::Parser;
 use colored::Colorize;
 use drillx::Solution;
 use ore_api::{error::OreError, state::Proof};
+use shared::{
+    interaction::Peek,
+    jito,
+    types::{MinerKey, UserName},
+    utils::{
+        amount_u64_to_string,
+        get_clock,
+        get_latest_blockhash_with_retries,
+        get_updated_proof_with_authority,
+        proof_pubkey,
+    },
+};
 use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
     rpc_config::RpcSendTransactionConfig,
@@ -16,26 +30,14 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
-use std::{fs, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
 use crate::{config::load_config_file, restful::ServerAPI};
-use shared::{
-    interaction::Peek,
-    jito,
-    types::{MinerKey, UserName},
-    utils::{
-        amount_u64_to_string,
-        get_clock,
-        get_latest_blockhash_with_retries,
-        get_updated_proof_with_authority,
-        proof_pubkey,
-    },
-};
 
 mod best_bus;
+mod bundler;
 mod config;
 mod dynamic_fee;
 mod restful;
@@ -476,7 +478,7 @@ impl Miner {
                                                 match err_code {
                                                     e if (OreError::NeedsReset as u32).eq(e) => {
                                                         sigs.remove(index);
-                                                        error!( "Needs reset. retry...");
+                                                        error!("Needs reset. retry...");
                                                         break 'confirm;
                                                     }
                                                     _ => {

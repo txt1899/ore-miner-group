@@ -1,4 +1,3 @@
-use crate::Miner;
 use ore_api::{
     consts::{BUS_ADDRESSES, BUS_COUNT},
     state::Bus,
@@ -6,6 +5,8 @@ use ore_api::{
 use ore_utils::AccountDeserialize;
 use rand::Rng;
 use solana_program::pubkey::Pubkey;
+
+use crate::Miner;
 
 impl Miner {
     pub async fn find_bus(&self) -> Pubkey {

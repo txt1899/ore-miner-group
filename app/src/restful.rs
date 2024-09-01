@@ -1,6 +1,5 @@
 use reqwest::{Method, Url};
 use serde::{de, ser};
-
 use shared::{
     interaction::{NextEpoch, Peek, RestfulResponse, Solution, SolutionResponse, User},
     types::{MinerKey, UserName},
