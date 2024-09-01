@@ -1,17 +1,17 @@
-use core_affinity::CoreId;
-use drillx::{equix, Hash};
 use std::{
     ops::Range,
     sync::{Arc, Mutex},
     thread::JoinHandle,
     time::Instant,
 };
+
+use core_affinity::CoreId;
+use drillx::{equix, Hash};
+use shared::interaction::MiningResult;
+use tokio::sync::mpsc;
 use tracing::*;
 
-use shared::interaction::MiningResult;
-
 use crate::container::Container;
-use tokio::sync::mpsc;
 
 pub(crate) struct UnitTask {
     pub container: Arc<Container>,

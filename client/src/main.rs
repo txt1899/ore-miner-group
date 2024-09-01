@@ -1,23 +1,23 @@
-use clap::{command, Parser};
-
 use std::{
     sync::Arc,
     thread::JoinHandle,
     time::{Duration, Instant},
 };
-use tokio::signal;
+
+use clap::{command, Parser};
+use shared::interaction::{ServerResponse, WorkContent};
+use tokio::{
+    signal,
+    sync::{broadcast, mpsc},
+};
 use tracing::*;
 use tracing_subscriber::EnvFilter;
 
-use shared::interaction::{ServerResponse, WorkContent};
-
 use crate::{
+    container::Container,
     stream::{new_subscribe, StreamCommand, StreamMessage},
-    thread::CoreThread,
+    thread::{CoreThread, UnitTask},
 };
-
-use crate::{container::Container, thread::UnitTask};
-use tokio::sync::{broadcast, mpsc};
 
 mod container;
 mod stream;
