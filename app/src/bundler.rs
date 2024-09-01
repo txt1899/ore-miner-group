@@ -466,9 +466,9 @@ impl JitoBundler {
 
                         let ixs = round.transaction(bus, signer, tip);
 
-                        let mut tx = Transaction::new_with_payer(&ixs, Some(&signer.pubkey()));
-
                         let fee_payer = self.fee_payer.as_ref().unwrap_or(&signer);
+
+                        let mut tx = Transaction::new_with_payer(&ixs, Some(&fee_payer.pubkey()));
 
                         if fee_payer.pubkey() == signer.pubkey() {
                             tx.sign(&[&signer], hash);
