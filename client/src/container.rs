@@ -2,7 +2,7 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
-
+use std::time::Instant;
 use shared::interaction::MiningResult;
 use tokio::sync::Notify;
 use tracing::*;
@@ -38,10 +38,22 @@ impl Container {
 
         let timeout = Duration::from_millis(timeout_millis);
 
+        let start = Instant::now();
+
         if let Err(_) = tokio::time::timeout(timeout, self.notify.notified()).await {
             let mut guard = self.cores.lock().unwrap();
             guard.sort();
             error!("wait mining result timeout. working cores: {:?}", *guard);
+        }
+
+        {
+            let elapsed = start.elapsed().as_secs_f64();
+
+            let guard = self.results.lock().unwrap();
+            let total: u64 = guard.iter().map(|item| item.workload).sum();
+
+            let hashrate = total as f64 / elapsed;
+            info!("mining power: {:.2} H/s", hashrate);
         }
 
         self.sort()
