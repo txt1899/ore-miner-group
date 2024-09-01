@@ -34,13 +34,7 @@ struct Args {
 
     // #[arg(long, help = "Enable dynamic priority fees", global = true)]
     // dynamic_fee: bool,
-
-    #[arg(
-        long,
-        help = "The min tip to pay for jito.",
-        default_value = "1000",
-        global = true
-    )]
+    #[arg(long, help = "The min tip to pay for jito.", default_value = "1000", global = true)]
     min_tip: Option<u64>,
 
     #[arg(

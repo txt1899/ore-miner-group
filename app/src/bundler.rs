@@ -450,14 +450,17 @@ impl JitoBundler {
                         let tips = jito::get_jito_tips().await;
 
                         // the last transaction will included tips instruction
-                        let tip = key.eq(last).then(|| {
-                            let min = self.min_tip.max(tips.p50() + 6);
-                            if self.max_tip > 0 {
-                                self.max_tip.min(min)
-                            } else {
-                                min
-                            }
-                        }).unwrap_or_default();
+                        let tip = key
+                            .eq(last)
+                            .then(|| {
+                                let min = self.min_tip.max(tips.p50() + 6);
+                                if self.max_tip > 0 {
+                                    self.max_tip.min(min)
+                                } else {
+                                    min
+                                }
+                            })
+                            .unwrap_or_default();
 
                         cost += FEE_PER_SIGNER + tip;
 
