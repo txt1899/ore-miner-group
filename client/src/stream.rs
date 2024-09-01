@@ -1,18 +1,9 @@
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 
-use futures_util::{
-    stream::SplitSink,
-    SinkExt,
-    StreamExt,
-};
+use futures_util::{stream::SplitSink, SinkExt, StreamExt};
 use tokio::net::TcpStream;
-use tokio_tungstenite::{
-    tungstenite,
-    tungstenite:: Message,
-    MaybeTlsStream,
-    WebSocketStream,
-};
+use tokio_tungstenite::{tungstenite, tungstenite::Message, MaybeTlsStream, WebSocketStream};
 use tracing::*;
 
 use shared::interaction::{ClientResponse, ServerResponse, WorkContent};
@@ -42,8 +33,8 @@ pub fn new_subscribe(
             let stream = match tokio_tungstenite::connect_async(&url).await {
                 Ok((stream, _)) => stream,
                 Err(err) => {
-                    if attempts > max_retry{
-                        break 'main
+                    if attempts > max_retry {
+                        break 'main;
                     }
                     error!("fail to connect to sever: {err:#}");
                     info!("retry...({attempts}/{max_retry})");

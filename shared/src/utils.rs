@@ -1,5 +1,3 @@
-use std::{io::Read, time::Duration};
-
 use cached::proc_macro::cached;
 use ore_api::{
     consts::{
@@ -20,10 +18,41 @@ use solana_client::{
 use solana_program::{pubkey::Pubkey, sysvar};
 use solana_sdk::{clock::Clock, hash::Hash};
 use spl_associated_token_account::get_associated_token_address;
+use std::{future::Future, io::Read, time::Duration};
 use tokio::time::sleep;
 
-pub const BLOCKHASH_QUERY_RETRIES: usize = 5;
-pub const BLOCKHASH_QUERY_DELAY: u64 = 500;
+const RETRY_TIMES: u32 = 5;
+const RETRY_DELAY: u64 = 300;
+
+macro_rules! custom_err {
+    ($($arg:tt)*) => {
+        ClientError {
+            request: None,
+            kind: ClientErrorKind::Custom(std::fmt::format(format_args!($($arg)*))),
+        }
+    };
+}
+
+async fn retry<T, E, F, Fut>(retry_fn: F, max_retries: u32, delay: u64) -> Result<T, E>
+where
+    Fut: Future<Output = Result<T, E>> + Send,
+    F: Fn() -> Fut,
+    E: std::fmt::Debug, {
+    let mut retries = 0;
+    let d = Duration::from_millis(delay);
+    loop {
+        match retry_fn().await {
+            Ok(value) => return Ok(value),
+            Err(_) if retries < max_retries => {
+                retries += 1;
+                sleep(d).await;
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        }
+    }
+}
 
 pub async fn _get_treasury(client: &RpcClient) -> Treasury {
     let data =
@@ -31,13 +60,22 @@ pub async fn _get_treasury(client: &RpcClient) -> Treasury {
     *Treasury::try_from_bytes(&data).expect("Failed to parse treasury account")
 }
 
-pub async fn get_config(client: &RpcClient) -> Config {
-    let data =
-        client.get_account_data(&CONFIG_ADDRESS).await.expect("Failed to get config account");
-    *Config::try_from_bytes(&data).expect("Failed to parse config account")
+pub async fn get_config(client: &RpcClient) -> Result<Config, ClientError> {
+    let func = || async { client.get_account_data(&CONFIG_ADDRESS).await };
+
+    let data = retry(func, RETRY_TIMES, RETRY_DELAY)
+        .await
+        .map_err(|e| custom_err!("Failed to get config account ({e})"))?;
+
+    Config::try_from_bytes(&data)
+        .map_err(|e| custom_err!("Failed to parse config account ({e})"))
+        .map(|r| *r)
 }
 
-pub async fn get_proof_with_authority(client: &RpcClient, authority: Pubkey) -> Proof {
+pub async fn get_proof_with_authority(
+    client: &RpcClient,
+    authority: Pubkey,
+) -> Result<Proof, ClientError> {
     let proof_address = proof_pubkey(authority);
     get_proof(client, proof_address).await
 }
@@ -46,25 +84,38 @@ pub async fn get_updated_proof_with_authority(
     client: &RpcClient,
     authority: Pubkey,
     lash_hash_at: i64,
-) -> Proof {
+) -> Result<Proof, ClientError> {
     loop {
-        let proof = get_proof_with_authority(client, authority).await;
+        let proof = get_proof_with_authority(client, authority).await?;
         if proof.last_hash_at.gt(&lash_hash_at) {
-            return proof;
+            return Ok(proof);
         }
         tokio::time::sleep(Duration::from_millis(1_000)).await;
     }
 }
 
-pub async fn get_proof(client: &RpcClient, address: Pubkey) -> Proof {
-    let data = client.get_account_data(&address).await.expect("Failed to get proof account");
-    *Proof::try_from_bytes(&data).expect("Failed to parse proof account")
+pub async fn get_proof(client: &RpcClient, address: Pubkey) -> Result<Proof, ClientError> {
+    let func = || async { client.get_account_data(&address).await };
+
+    let data = retry(func, RETRY_TIMES, RETRY_DELAY)
+        .await
+        .map_err(|e| custom_err!("Failed to get proof account ({e})"))?;
+
+    Proof::try_from_bytes(&data)
+        .map_err(|e| custom_err!("Failed to parse proof account ({e})"))
+        .map(|r| *r)
 }
 
-pub async fn get_clock(client: &RpcClient) -> Clock {
-    let data =
-        client.get_account_data(&sysvar::clock::ID).await.expect("Failed to get clock account");
-    bincode::deserialize::<Clock>(&data).expect("Failed to deserialize clock")
+pub async fn get_clock(client: &RpcClient) -> Result<Clock, ClientError> {
+    let func = || async { client.get_account_data(&sysvar::clock::ID).await };
+
+    let data = retry(func, RETRY_TIMES, RETRY_DELAY)
+        .await
+        .map_err(|e| custom_err!("Failed to get clock account ({e})"))?;
+
+    bincode::deserialize::<Clock>(&data)
+        .map_err(|e| custom_err!("Failed to deserialize clock ({e})"))
+        .map(|r| r)
 }
 
 pub fn amount_u64_to_string(amount: u64) -> String {
@@ -99,27 +150,13 @@ pub fn ask_confirm(question: &str) -> bool {
 pub async fn get_latest_blockhash_with_retries(
     client: &RpcClient,
 ) -> Result<(Hash, u64), ClientError> {
-    let mut attempts = 0;
+    let func = || async { client.get_latest_blockhash_with_commitment(client.commitment()).await };
 
-    loop {
-        if let Ok((hash, slot)) =
-            client.get_latest_blockhash_with_commitment(client.commitment()).await
-        {
-            return Ok((hash, slot));
-        }
+    let data = retry(func, RETRY_TIMES, RETRY_DELAY)
+        .await
+        .map_err(|e| custom_err!("Failed to get clock account ({e})"))?;
 
-        // Retry
-        sleep(Duration::from_millis(BLOCKHASH_QUERY_DELAY)).await;
-        attempts += 1;
-        if attempts >= BLOCKHASH_QUERY_RETRIES {
-            return Err(ClientError {
-                request: None,
-                kind: ClientErrorKind::Custom(
-                    "Max retries reached for latest blockhash query".into(),
-                ),
-            });
-        }
-    }
+    Ok(data)
 }
 
 #[cached]

@@ -2,14 +2,7 @@ use reqwest::{Method, Url};
 use serde::{de, ser};
 
 use shared::{
-    interaction::{
-        NextEpoch,
-        Peek,
-        RestfulResponse,
-        Solution,
-        SolutionResponse,
-        User,
-    },
+    interaction::{NextEpoch, Peek, RestfulResponse, Solution, SolutionResponse, User},
     types::{MinerKey, UserName},
 };
 
@@ -19,11 +12,7 @@ pub struct ServerAPI {
 
 impl ServerAPI {
     /// login and get rpc url
-    pub async fn login(
-        &self,
-        user: UserName,
-        miners: Vec<MinerKey>,
-    ) -> anyhow::Result<()> {
+    pub async fn login(&self, user: UserName, miners: Vec<MinerKey>) -> anyhow::Result<()> {
         let payload = User {
             user,
             miners,
@@ -69,7 +58,7 @@ impl ServerAPI {
         &self,
         user: UserName,
         miner: MinerKey,
-        challenge:[u8;32]
+        challenge: [u8; 32],
     ) -> anyhow::Result<SolutionResponse> {
         let payload = Solution {
             user,

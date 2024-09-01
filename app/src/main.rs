@@ -7,11 +7,7 @@ use solana_client::{
     client_error::{ClientError, ClientErrorKind, Result as ClientResult},
     rpc_config::RpcSendTransactionConfig,
 };
-use solana_program::{
-    native_token::lamports_to_sol,
-    pubkey::Pubkey,
-    system_instruction::transfer,
-};
+use solana_program::{native_token::lamports_to_sol, pubkey::Pubkey, system_instruction::transfer};
 use solana_rpc_client::nonblocking::rpc_client::RpcClient;
 use solana_sdk::{
     commitment_config::{CommitmentConfig, CommitmentLevel},
@@ -20,13 +16,7 @@ use solana_sdk::{
     transaction::Transaction,
 };
 use solana_transaction_status::{TransactionConfirmationStatus, UiTransactionEncoding};
-use std::{
-    fs,
-    path::PathBuf,
-    str::FromStr,
-    sync::Arc,
-    time::Duration,
-};
+use std::{fs, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use tokio::time;
 use tracing::*;
 use tracing_subscriber::EnvFilter;
@@ -151,11 +141,8 @@ async fn main() -> anyhow::Result<()> {
     let miner_keys: Vec<_> = keys.iter().map(|m| MinerKey(m.pubkey().to_string())).collect();
 
     if args.jito {
-        tokio::spawn(async {
-            jito::subscribe_jito_tips().await
-        });
+        tokio::spawn(async { jito::subscribe_jito_tips().await });
     }
-
 
     // login
     if let Err(err) = api.login(user_name.clone(), miner_keys).await {
@@ -239,7 +226,9 @@ impl Miner {
                         &self.rpc_client,
                         self.signer.pubkey(),
                         last_hash_at,
-                    ).await;
+                    )
+                    .await
+                    .expect("get proof max retries");
 
                     if last_difficulty > 0 {
                         let earn = amount_u64_to_string(proof.balance.saturating_sub(last_balance));
@@ -257,7 +246,6 @@ impl Miner {
                     let cutoff_time = self.get_cutoff(proof, 8).await;
 
                     deadline = Instant::now() + Duration::from_secs(cutoff_time);
-
 
                     if let Err(err) = self
                         .api
@@ -307,21 +295,33 @@ impl Miner {
                 }
 
                 MiningStep::Submit => {
-                    match self.api.get_solution(self.user.clone(), miner_key.clone(), last_challenge).await {
+                    match self
+                        .api
+                        .get_solution(self.user.clone(), miner_key.clone(), last_challenge)
+                        .await
+                    {
                         Ok(data) => {
-                            debug!("difficulty: {}" ,data.difficulty);
+                            debug!("difficulty: {}", data.difficulty);
 
                             last_difficulty = data.difficulty;
 
                             let solution = Solution::new(data.digest, data.nonce.to_le_bytes());
 
-                            debug!("omg tip: {:?}, {:?}", data.omg_wallet,data.omg_tip);
+                            debug!("omg tip: {:?}, {:?}", data.omg_wallet, data.omg_tip);
 
-                            match self.transaction(solution, miner_key.clone(), data.omg_tip, data.omg_wallet).await {
+                            match self
+                                .transaction(
+                                    solution,
+                                    miner_key.clone(),
+                                    data.omg_tip,
+                                    data.omg_wallet,
+                                )
+                                .await
+                            {
                                 Ok(tx) => {
                                     info!("{} {}", "OK".bold().green(), tx);
                                 }
-                                Err(err) => error!("{} >> max retries: {:?}", pubkey, err)
+                                Err(err) => error!("{} >> max retries: {:?}", pubkey, err),
                             }
                             self.step = MiningStep::Waiting;
                         }
@@ -339,7 +339,13 @@ impl Miner {
         }
     }
 
-    async fn transaction(&self, solution: Solution, miner: MinerKey, omg_tip: u64, omg_wallet: Pubkey) -> anyhow::Result<Signature> {
+    async fn transaction(
+        &self,
+        solution: Solution,
+        miner: MinerKey,
+        omg_tip: u64,
+        omg_wallet: Pubkey,
+    ) -> anyhow::Result<Signature> {
         info!("{} >> ready for transaction", self.signer.pubkey());
 
         let compute_budget = 500_000;
@@ -527,7 +533,7 @@ impl Miner {
     }
 
     async fn get_cutoff(&self, proof: Proof, buffer_time: u64) -> u64 {
-        let clock = get_clock(&self.rpc_client).await;
+        let clock = get_clock(&self.rpc_client).await.expect("get solana clock max retries");
         proof
             .last_hash_at
             .saturating_add(60)

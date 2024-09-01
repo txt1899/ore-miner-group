@@ -1,9 +1,6 @@
 use shared::interaction::MiningResult;
 use std::{
-    sync::{
-        Arc,
-        Mutex,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::sync::Notify;
