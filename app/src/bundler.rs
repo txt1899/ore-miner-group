@@ -425,7 +425,7 @@ impl JitoBundler {
                     .collect()
             };
 
-            let task = if !keys.is_empty() {
+            let (handler, rounds) = if !keys.is_empty() {
                 let mut cost = 0_u64;
                 let mut bundle = Vec::with_capacity(5);
                 let mut rounds = Vec::with_capacity(5);
@@ -496,16 +496,16 @@ impl JitoBundler {
                 }
                 info!("current bundle cost: {} SOL", amount_u64_to_string(cost));
 
-                Some((tokio::spawn(async move { jito::send_bundle(bundle).await }), rounds))
+                (tokio::spawn(async move { jito::send_bundle(bundle).await }), rounds)
             } else {
-                None
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                continue;
             };
 
-            // if there is a jito transaction, check the result
-            if let Some(val) = task {
+            tokio::spawn({
                 let client = Arc::clone(&self.rpc_client);
-                tokio::spawn(async move {
-                    match val.0.await.unwrap() {
+                async move {
+                    match handler.await.unwrap() {
                         Ok((signature, bundle_id)) => {
                             debug!(?bundle_id, ?signature, "bundle sent");
 
@@ -517,7 +517,7 @@ impl JitoBundler {
                                 }
                             }
 
-                            for item in val.1 {
+                            for item in rounds {
                                 let _ = item.channel.send(item.current.update());
                             }
                         }
@@ -525,8 +525,8 @@ impl JitoBundler {
                             error!("fail to send bundle: {err:#}");
                         }
                     }
-                });
-            }
+                }
+            });
         }
     }
 }
