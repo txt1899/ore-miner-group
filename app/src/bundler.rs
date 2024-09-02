@@ -72,6 +72,11 @@ impl LastRound {
     }
 }
 
+/// create a round of mining
+///
+/// find the best solution and push it to the packager.
+///
+/// wait for the result and proceed to the next round
 pub struct ChallengeRound {
     api: Arc<ServerAPI>,
     user: UserName,
@@ -371,7 +376,7 @@ impl JitoBundler {
             let this = Arc::clone(self);
 
             tokio::spawn(async move {
-                let mut last_rund: Option<LastRound> = None;
+                let mut last_round: Option<LastRound> = None;
                 loop {
                     debug!("new challenge round");
 
@@ -382,7 +387,7 @@ impl JitoBundler {
                         user.clone(),
                         miner.clone(),
                         tx,
-                        last_rund.clone(),
+                        last_round.clone(),
                     )
                     .mining(&client, &signer)
                     .await;
@@ -392,8 +397,10 @@ impl JitoBundler {
                             debug!("{} waiting bundle", round.user.as_str());
 
                             this.push(miner.clone(), round).await;
+
+                            // wait transaction result
                             if let Ok(val) = rx.await {
-                                last_rund = Some(val)
+                                last_round = Some(val)
                             }
                         }
                         Err(err) => {
