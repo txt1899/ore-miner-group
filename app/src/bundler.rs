@@ -137,7 +137,7 @@ impl ChallengeRound {
         if difficulty > 0 {
             let income = amount_u64_to_string(proof.balance.saturating_sub(balance));
             info!(
-                "difficulty: {}, income: {}, time: {:.2} second",
+                "stake: {}, difficulty: {}, income: {}, time: {:.2} second", proof.balance,
                 difficulty, income, self.last.elapsed
             );
         }

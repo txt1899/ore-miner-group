@@ -65,7 +65,7 @@ struct Args {
 
 fn init_log() {
     let env_filter = EnvFilter::from_default_env()
-        .add_directive("app=trace".parse().unwrap())
+        .add_directive("app=info".parse().unwrap())
         .add_directive("info".parse().unwrap());
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 }
