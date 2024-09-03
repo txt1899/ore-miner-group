@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fs, path::PathBuf, sync::Arc};
 
 use bundler::JitoBundler;
+use cfg_if::cfg_if;
 use clap::Parser;
 use shared::{
     jito,
@@ -19,6 +20,14 @@ use crate::{config::load_config_file, restful::ServerAPI};
 mod bundler;
 mod config;
 mod restful;
+
+cfg_if! {
+    if #[cfg(feature = "build-version")] {
+        include!(concat!(env!("OUT_DIR"), "/version.rs"));
+    } else {
+        pub const VERSION: &str = "unknown";
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -103,6 +112,8 @@ fn parse_keypair() -> anyhow::Result<Vec<Keypair>> {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     init_log();
+
+    info!("VERSION:{}", VERSION);
 
     let args = Args::parse();
 

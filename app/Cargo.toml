@@ -1,7 +1,13 @@
 [package]
 name = "app"
+build = "build.rs"
 version.workspace = true
 edition.workspace = true
+
+[features]
+default = ["build-version"]
+build-version = []
+
 
 [dependencies]
 solana-cli-config.workspace = true
@@ -34,3 +40,5 @@ reqwest = "*"
 url.workspace = true
 rand.workspace = true
 colored.workspace = true
+
+cfg-if.workspace = true

@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use cfg_if::cfg_if;
 use clap::{command, Parser};
 use shared::interaction::{ServerResponse, WorkContent};
 use tokio::{
@@ -22,6 +23,14 @@ use crate::{
 mod container;
 mod stream;
 mod thread;
+
+cfg_if! {
+    if #[cfg(feature = "build-version")] {
+        include!(concat!(env!("OUT_DIR"), "/version.rs"));
+    } else {
+        pub const VERSION: &str = "unknown";
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(about, version)]
@@ -169,6 +178,8 @@ fn start_work(args: Args) -> (broadcast::Sender<()>, Vec<JoinHandle<()>>) {
 #[tokio::main]
 async fn main() {
     init_log();
+
+    info!("VERSION:{}", VERSION);
 
     let args = Args::parse();
 

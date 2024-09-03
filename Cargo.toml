@@ -1,9 +1,11 @@
 [workspace]
 members = ["client", "app", "shared"]
+resolver = "2"
 
 [workspace.package]
-version = "2.1.0"
+version = "2.1.1"
 edition = "2021"
+
 
 [workspace.dependencies]
 actix = "0.13.5"
@@ -45,6 +47,8 @@ spl-token = { version = "^4", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "^2.3", features = [
     "no-entrypoint",
 ] }
+
+cfg-if = "1.0.0"
 
 ore-api = "^2.0.0"
 ore-utils = "^2.0.0"

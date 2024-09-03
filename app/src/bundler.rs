@@ -1,5 +1,4 @@
 use std::{
-    cmp::min,
     collections::HashMap,
     sync::Arc,
     time::{Duration, Instant},

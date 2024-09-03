@@ -1,7 +1,12 @@
 [package]
 name = "client"
+build = "build.rs"
 version.workspace = true
 edition.workspace = true
+
+[features]
+default = ["build-version"]
+build-version = []
 
 [dependencies]
 ore-api.workspace = true
@@ -19,6 +24,7 @@ cached.workspace = true
 bs58.workspace = true
 anyhow.workspace = true
 clap.workspace = true
+cfg-if.workspace = true
 
 shared.workspace = true
 
