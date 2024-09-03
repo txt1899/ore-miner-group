@@ -1,4 +1,4 @@
-use std::{fs::File, io, path::Path};
+use std::{fs::File, io};
 
 use serde::{Deserialize, Serialize};
 
@@ -12,10 +12,9 @@ pub struct AppConfig {
     pub fee_payer: Option<String>,
 }
 
-pub fn load_config_file<P>(config_file: P) -> Result<AppConfig, io::Error>
-where
-    P: AsRef<Path>, {
-    let file = File::open(config_file).expect("config file not found");
+pub fn load_config_file(config_file: String) -> Result<AppConfig, io::Error> {
+    let file = File::open(config_file.clone())
+        .expect(format!("{config_file} config file not found").as_str());
     let config = serde_json::from_reader(file)
         .map_err(|err| io::Error::new(io::ErrorKind::Other, format!("{err:?}")))?;
     Ok(config)

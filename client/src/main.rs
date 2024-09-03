@@ -124,7 +124,7 @@ fn start_work(args: Args) -> (broadcast::Sender<()>, Vec<JoinHandle<()>>) {
 
     let max_retry = args.reconnect.unwrap_or(10);
 
-    let url = format!("ws://{}/worker/{}", args.host, args.wallet);
+    let url = format!("ws://{}/worker/{}/{}", args.host, VERSION, args.wallet);
 
     info!("Client Starting... Threads: {}, Pubkey: {}", cores, args.wallet);
 

@@ -6,7 +6,7 @@ fn main() {
         .lines()
         .find(|line| line.starts_with("version = "))
         .and_then(|line| line.split('=').nth(1))
-        .map(|v| v.replace('"', "").to_string())
+        .map(|v| v.trim_matches(&[' ', '"']).to_string())
         .expect("Unable to find version in Cargo.toml");
 
     let out_dir = env::var("OUT_DIR").unwrap();

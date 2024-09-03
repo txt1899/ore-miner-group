@@ -13,13 +13,16 @@ impl ServerAPI {
     /// login send miner pubkey to server
     pub async fn login(&self, user: UserName, miners: Vec<MinerKey>) -> anyhow::Result<()> {
         let payload = User {
+            version: crate::VERSION.to_string(),
             user,
             miners,
         };
         let resp = self.request::<_, ()>("/api/v1/login", Method::POST, payload).await?;
+
         if resp.code == 200 {
             return Ok(());
         }
+
         anyhow::bail!(resp.message.unwrap());
     }
 

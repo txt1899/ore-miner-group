@@ -91,6 +91,7 @@ pub struct WorkContent {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct User {
+    pub version: String,
     pub user: UserName,
     pub miners: Vec<MinerKey>,
 }
@@ -163,8 +164,10 @@ pub enum RestfulError {
     MinerNotFound,
     #[error("solution not found")]
     SolutionNotFound,
-    #[error("Internal Server Error")]
+    #[error("internal server error")]
     InternalServerError,
+    #[error("version mismatch")]
+    VersionMismatch,
     #[error("custom error: {0}")]
     Custom(String),
 }
@@ -176,6 +179,7 @@ impl RestfulError {
             RestfulError::UserNotFound => -10001,
             RestfulError::MinerNotFound => -10002,
             RestfulError::SolutionNotFound => -10003,
+            RestfulError::VersionMismatch => -10004,
             RestfulError::InternalServerError => -30000,
             RestfulError::Custom(_) => -90000,
         }
@@ -187,6 +191,7 @@ impl RestfulError {
             RestfulError::UserNotFound => StatusCode::NOT_FOUND,
             RestfulError::MinerNotFound => StatusCode::NOT_FOUND,
             RestfulError::SolutionNotFound => StatusCode::NOT_FOUND,
+            RestfulError::VersionMismatch => StatusCode::FORBIDDEN,
             RestfulError::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
             RestfulError::Custom(_) => StatusCode::BAD_REQUEST,
         }

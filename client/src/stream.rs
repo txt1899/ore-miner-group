@@ -37,6 +37,18 @@ pub fn new_subscribe(
                     if attempts > max_retry {
                         break 'main;
                     }
+
+                    if let tungstenite::Error::Http(ref val) = err {
+                        if val.status() == 403 {
+                            if let Some(body) = val.body() {
+                                let data = String::from_utf8(body.clone())
+                                    .unwrap_or("unknown".to_string());
+                                error!("fail to connect to sever: {data}");
+                                break 'main;
+                            }
+                        }
+                    }
+
                     error!("fail to connect to sever: {err:#}");
                     info!("retry...({attempts}/{max_retry})");
                     tokio::select! {

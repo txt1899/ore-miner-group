@@ -117,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args = Args::parse();
 
-    let cfg = load_config_file("./config.json")?;
+    let cfg = load_config_file("./config.json".to_owned())?;
 
     debug!("config: {cfg:?}");
 
@@ -148,8 +148,10 @@ async fn main() -> anyhow::Result<()> {
 
     // login
     if let Err(err) = api.login(user_name.clone(), miner_keys).await {
-        anyhow::bail!("fail to login, not match miners key: {err:#}");
+        error!("fail to login");
+        anyhow::bail!("fail to login ({err:#?})");
     }
+
     // create miners
     let miners: HashMap<_, _> =
         keys.into_iter().map(|key| (MinerKey(key.pubkey().to_string()), Arc::new(key))).collect();
