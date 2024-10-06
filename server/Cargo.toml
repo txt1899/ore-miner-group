@@ -1,0 +1,62 @@
+[package]
+name = "server"
+build = "build.rs"
+version.workspace = true
+edition.workspace = true
+
+[features]
+default = ["build-version"]
+build-version = []
+
+[dependencies]
+actix = "0.13.5"
+actix-rt = "2.10.0"
+actix-http = { version = "3", default-features = false, features = ["ws"] }
+actix-web = { version = "4" }
+actix-ws = "0.3.0"
+actix-broker = "0.4.3"
+actix-files = "0.6.6"
+actix-web-actors = "4.3.0"
+
+reqwest = { version = "0.11.27", features = ["json"] }
+lazy_static = "1.5.0"
+thiserror = "1.0.63"
+async-trait = "0.1.81"
+
+# json
+serde_json.workspace = true
+serde.workspace = true
+
+cfg-if.workspace = true
+url.workspace = true
+bs58.workspace = true
+bytes.workspace = true
+rand .workspace = true
+clap .workspace = true
+anyhow.workspace = true
+cached.workspace = true
+bincode.workspace = true
+colored .workspace = true
+tokio .workspace = true
+futures-util.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+solana-cli-config.workspace = true
+solana-client.workspace = true
+solana-program.workspace = true
+solana-rpc-client.workspace = true
+solana-sdk.workspace = true
+solana-transaction-status.workspace = true
+solana-account-decoder.workspace = true
+spl-token.workspace = true
+spl-associated-token-account.workspace = true
+
+ore-api.workspace = true
+ore-utils.workspace = true
+drillx.workspace = true
+
+shared.workspace = true
+
+[dev-dependencies]
+actix-test = "0.1.5"

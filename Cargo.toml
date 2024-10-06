@@ -1,23 +1,12 @@
 [workspace]
-members = ["client", "app", "shared"]
+members = ["server", "client", "app", "shared"]
 resolver = "2"
 
 [workspace.package]
 version = "2.1.1"
 edition = "2021"
 
-
 [workspace.dependencies]
-actix = "0.13.5"
-actix-rt = "2.10.0"
-actix-http = { version = "3", default-features = false, features = ["ws"] }
-actix-web = { version = "4" }
-actix-ws = "0.3.0"
-actix-broker = "0.4.3"
-actix-files = "0.6.6"
-actix-web-actors = "4.3.0"
-
-
 url = "2.5.2"
 bs58 = "0.5.1"
 bytes = "1.7.1"
